@@ -1,0 +1,119 @@
+{
+ "source": "https://github.com/microsoft/vscode/issues (labels as ground truth)",
+ "revision": "issues fetched via GitHub API; ids: issue-331072,issue-331125,issue-331272,issue-331291,issue-331350,issue-331367,issue-331368,issue-331374,issue-331980,issue-331988,issue-332051,issue-332070,issue-332082,issue-332115,issue-332124,issue-332167",
+ "digest": "378de14cfb270b4b9137dd39f69f1dac24725bd3382259e5a673d314f9fc9c71",
+ "scenarios": [
+  {
+   "id": "issue-331072",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Agents Window: Preserve Changes view state per session\n\nBody:\nPreserve the expanded and collapsed state of the file tree in the Agents Window Changes editor.\n\nVerification:\n1. Open the Changes editor and show its files list as a tree.\n2. Expand some tree nodes and collapse others.\n3. Switch to another session, then return.\n   - Verify the tree restores the same expanded and collapsed state.\n4. Reload the window and reopen the session’s Changes editor.\n   - Verify the tree still restores the same expanded and collapsed state.\n\nImplemented by #330619.",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331125",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Chat: Use mouse Back to return to the agent sessions list\n\nBody:\n<!-- ⚠️⚠️ Do Not Delete This! feature_request_template ⚠️⚠️ -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- Please search existing issues to avoid creating duplicates. -->\n\nWhen the Chat view is narrow enough that the agent sessions list is not shown beside the active chat, the mouse Back button should return to the sessions list. This would make mouse navigation consistent with the visible list/detail relationship instead of navigating editor history.\n\n## Steps to reproduce\n\n1. Enable `workbench.editor.mouseBackForwardToNavigate`.\n2. Enable the Chat view's agent sessions list.\n3. Open the Chat view and size it so the sessions list and active chat are shown one at a time rather than side by side.\n4. Select an existing session from the sessions list.\n5. Focus the chat transcript or input.\n6. Press the mouse Back button.\n\n## Current behavior\n\nVS Code navigates editor history instead of returning to the agent sessions list.\n\n## Expected behavior\n\nThe active chat closes and the agent sessions list is shown and focused. Mouse Back should continue to navigate editor history when the sessions list is already beside the chat, when focus is outside the chat, or when agent sessions are disabled.",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331272",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Session creation countdown could be longer\n\nBody:\nTesting #330957\n\nI'm testing voice mode creating new sessions.\nI keep getting the session created before I can read all the keyboard options available.\nCould the countdown be extended to 15 or 30 seconds?\nI also pressed the up key to test something (there was only one suggested session) and it cancelled the creation of that session and restored a previous prompt instead.",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331291",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Opened Omni chat to a confirmation for which I don't have the context\n\nBody:\nTesting #330957\n\nI closed Omni chat, and after lunch, opened it again.\nI then saw I had a confirmation for a tool call, but I don't remember for which session. I also don't see any specifics.\n\n<img width=\"820\" height=\"247\" alt=\"Fetch URL confirmation with no listed URL\" src=\"https://github.com/user-attachments/assets/80412f7f-0c4b-49fd-8c3d-255b79f6ebd3\" />",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331350",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Omni chat -> Agents bar UX redesign\n\nBody:\nA few team members have expressed confusion about what Omni is vs. any other chat. All chats should be multi-session aware, while this is a session-independent surface for interacting with the whole agent system.\n\nThe Agents window is where you inspect and manage agent sessions; this surface provides lightweight, persistent access to them, especially through voice.\n\nI think some UX tweaks and a rename can help clarify this:\n\n- Rename Omni Chat → Agent Bar, which better communicates that it’s an interface to your agents across sessions\n- Provide a natural home for multi-session voice: voice within a normal chat stays focused on that session, while Agent Bar can converse across sessions without unrelated agents interrupting a focused conversation\n- Surface questions, confirmations, CI failures, and other items that need your attention across sessions\n- Stay draggable outside the VS Code window so it remains accessible while you work \n\nChanges include:\n- remove the model picker\n- align with UX of the below\n- support closing the agents window and persisting agents bar https://github.com/microsoft/vscode/issues/331374\n\n<img width=\"1536\" height=\"1024\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/2a86e992-7317-4b74-9a61-2dce0c4b4106\" />",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331367",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Add mute-mic button and transcription controls for ChatGPT voice mode\n\nBody:\nFeature request: Add a mute-mic button and transcription controls for ChatGPT voice mode\n\nBackground\n- ChatGPT voice mode currently does live transcription and supports hands-free input.\n- From internal discussion: users would like a dedicated mute/disable-mic button for hands-free use, and reconsideration of whether live transcription should be on by default.\n\nProposal\n- Add a clear, persistent mute/unmute microphone button in ChatGPT voice mode UI so users can temporarily mute their mic without interrupting the voice session.\n- Expose a setting to control live transcription default (on/off) and a quick toggle in the voice UI to enable/disable transcription per session.\n\nUser benefits\n- Prevents accidental audio input during hands-free mode (e.g., background noise, coughing, etc.).\n- Gives users control over privacy and reduces interruptions to the model when they need to speak privately.\n- Improves accessibility for heavy mute-button users.\n\nSuggested UX details\n- Mute button visible next to existing microphone/control area; show visual state (muted/unmuted).\n- Muting should stop sending audio to transcription/voice backend but keep the voice session active so users can unmute quickly.\n- Provide an optional setting (Preferences → Chat/Voice) to set transcription default (on/off) and to always show the mute button in voice mode.\n\nAcceptance criteria\n- Users can mute/unmute microphone from voice mode without ending the session.\n- Transcription can be toggled per session and a",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331368",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Add dictation entry point to editor and terminal context menus\n\nBody:\n<!-- Describe the feature you'd like. -->\n\nAdd a dictation entry point to the editor and terminal context menus.\n\nProblem\n- Users who rely on speech-to-text/dictation currently have no obvious way to start dictation from the editor or integrated terminal UI.\n\nProposal\n- Add a \"Start dictation\" (or similarly named) command to the editor context menu and the terminal context menu.\n- Do not surface a persistent toolbar button for dictation; keep the entry point confined to context menus and the command palette.\n\nRationale\n- Context menus provide a discoverable, low-clutter way to expose dictation where users are already interacting (editor/terminal) without adding persistent UI that could be distracting.\n- This keeps the UI minimal while still making dictation easy to access for users who need it.\n\nAcceptance criteria\n- \"Start dictation\" appears in the editor context menu and the terminal context menu.\n- The command is also registerable in the command palette and supports keybinding.\n- No new toolbar buttons are added by default.\n- Works with the existing accessibility settings and does not regress keyboard/ screen-reader behavior.\n\nImplementation notes\n- The command can reuse existing dictation backend (if any) or expose a new command that integrations can hook into.\n- Consider telemetry to track usage (opt-in / respecting privacy) and ensure consent for audio input.\n\nReferences / context\n- Internal feedback: add to context menus, but not toolbars.\n\n\n[View original Slack conver",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331374",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Keep Omni open after closing the Agents window\n\nBody:\n## Feature request\n\nKeep an open Omni bar functional when its owning Agents window is closed.\n\nToday, closing the Agents window also disrupts the Omni bar because the Agents workbench owns services that Omni needs for session routing. Instead, closing the Agents window while Omni is open should hide and retain the owning workbench so Omni remains usable. Closing Omni should then complete the deferred close, while reopening Agents should restore the retained window and cancel that deferred close.\n\n## Expected behavior\n\n- Closing the Agents window does not close or disable an open Omni bar.\n- The open Omni bar continues to support session routing.\n- Closing Omni finishes closing the hidden Agents window.\n- Reopening Agents restores the hidden window and cancels its deferred close.\n\nImplementation: https://github.com/microsoft/vscode/pull/331312",
+   "expect": {
+    "equals_ignoring_case": "feature-request"
+   }
+  },
+  {
+   "id": "issue-331980",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: [Error] unhandlederror-Cannot read properties of undefined (reading 'id')\n\nBody:\n## Error Message\n````\nunhandlederror-Cannot read properties of undefined (reading 'id')\n````\n\n## Stack Trace\n&nbsp;&nbsp;&nbsp;&nbsp;at gTe.value ([./src/vs/workbench/contrib/chat/browser/widget/chatWidget.ts:2001:0](https://github.com/microsoft/vscode/blob/05bf4f5ce25799e2d0daf32bf90cb885ca75a0b9/src/vs/workbench/contrib/chat/browser/widget/chatWidget.ts#L2001))  \n&nbsp;&nbsp;&nbsp;&nbsp;at D._deliver ([./src/vs/base/common/event.ts:1391:12](https://github.com/microsoft/vscode/blob/05bf4f5ce25799e2d0daf32bf90cb885ca75a0b9/src/vs/base/common/event.ts#L1391))  \n&nbsp;&nbsp;&nbsp;&nbsp;at D.fire ([./src/vs/base/common/event.ts:1422:8](https://github.com/microsoft/vscode/blob/05bf4f5ce25799e2d0daf32bf90cb885ca75a0b9/src/vs/base/common/event.ts#L1422))  \n&nbsp;&nbsp;&nbsp;&nbsp;at HTMLDivElement.<anonymous> ([./src/vs/workbench/contrib/chat/browser/widget/chatListRenderer.ts:4253:0](https://github.com/microsoft/vscode/blob/05bf4f5ce25799e2d0daf32bf90cb885ca75a0b9/src/vs/workbench/contrib/chat/browser/widget/chatListRenderer.ts#L4253))\n\n<details>\n<summary>Raw Stack Trace (minified)</summary>\n\n````\nTypeError: Cannot read properties of undefined (reading 'id')     at gTe.value (out/vs/workbench/workbench.desktop.main.js:3066:119538)     at D._deliver (out/vs/workbench/workbench.desktop.main.js:433:3642)     at D.fire (out/vs/workbench/workbench.desktop.main.js:433:3961)     at HTMLDivElement.<anonymous> (out/vs/workbench/workbench.desktop.main.js:3060:74415)\n````\n\n</details>\n\n## Det",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-331988",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Agents Window: style prompt timeline flyout scrollbar\n\nBody:\n### Description\n\nThe prompt timeline flyout in the Agents Window uses the browser's native scrollbar styling. In dark themes this can render as a bright white scrollbar that does not match the rest of VS Code.\n\n<img width=\"256\" height=\"500\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/112322cb-44f8-4564-b5d3-a6e0976ce4bc\" />\n\n### Steps to Reproduce\n\n1. Open the Agents Window.\n2. Open a chat with enough user messages for the prompt timeline dots to appear on the left of the transcript.\n3. Hover over the dots to reveal the prompt list.\n4. Observe the scrollbar when the prompt list overflows.\n\n### Expected\n\nThe flyout scrollbar uses the same themed, rounded appearance as the chat transcript scrollbar, including hover and active states.\n\n### Actual\n\nThe flyout displays the platform-native scrollbar, which can appear white and visually inconsistent with the Agents Window.",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332051",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Agents window: New Session composer snaps back to harness with models on startup\n\nBody:\nSummary\n\nWhen starting a transient VS Code window, signing into GitHub, then opening the Agents window, the New Session composer could switch the selected harness to the first harness with published models (e.g. Codex/Claude) after you explicitly picked another harness (e.g. Copilot). Models arrive asynchronously on startup and that race caused the pick to snap back to the harness that published models first.\n\nSteps to reproduce\n\n1. Launch a transient VS Code instance (not previously signed-in).\n2. Sign into GitHub.\n3. Open the Agents window and open the New Session composer.\n4. Pick a harness that does not yet have a model catalog (for example, Copilot or Codex) while another harness (e.g. Claude) later registers models.\n5. Observe that the composer “snaps back” to the harness with models a second or two later.\n\nExpected\n\nThe stored harness preference (if any) should win; if no stored preference exists the first harness in the list should be used. Picking a harness in the composer should persist and not be overwritten by asynchronous model-arrival events.\n\nActual\n\nThe composer briefly honored the user pick but then switched to whatever harness had published models first, making the selection feel like it was reverting unexpectedly.\n\nInvestigation / Fix\n\nThis was a race in the New Session composer where model-arrival would cause a harness substitution. The behavior is fixed by PR microsoft/vscode#332034 (merged) which ensures the stored preference wins and avoids recreating t",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332070",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: The tab close button remains stuck in the 'Close Others' state even without pressing Alt.\n\nBody:\nType: <b>Bug</b>\n\nSometimes when I Alt+Tab back in, the tab's close button stays stuck on 'Close Others' even after releasing both keys, which is super annoying.\n\nVS Code version: Code 1.134.0 (110a328ea54b42367b803ec53ee0bf52ef26b419, 2026-08-18T18:24:44Z)\nOS version: Windows_NT x64 10.0.26200\nModes:\n\n<details>\n<summary>System Info</summary>\n\n|Item|Value|\n|---|---|\n|CPUs|13th Gen Intel(R) Core(TM) i7-13700KF (24 x 3418)|\n|GPU Status|2d_canvas: enabled<br>GPU0: VENDOR= 0x10de, DEVICE=0x2488 [NVIDIA GeForce RTX 3070], DRIVER_VENDOR=NVIDIA, DRIVER_VERSION=32.0.15.9186 *ACTIVE*<br>GPU1: VENDOR= 0x10de, DEVICE=0x2488 [NVIDIA GeForce RTX 3070], DRIVER_VERSION=32.0.15.9186<br>GPU2: VENDOR= 0x10de, DEVICE=0x2488 [NVIDIA GeForce RTX 3070], DRIVER_VERSION=32.0.15.9186<br>GPU3: VENDOR= 0x1414, DEVICE=0x008c [Microsoft Basic Render Driver], DRIVER_VERSION=10.0.26100.8972<br>Machine model name: <br>Machine model version: <br>direct_rendering_display_compositor: disabled_off_ok<br>gpu_compositing: enabled<br>multiple_raster_threads: enabled_on<br>opengl: enabled_on<br>rasterization: enabled<br>raw_draw: disabled_off_ok<br>skia_graphite: disabled_off<br>trees_in_viz: disabled_off<br>video_decode: enabled<br>video_encode: enabled<br>webgl: enabled<br>webgpu: enabled<br>webnn: disabled_off|\n|Load (avg)|undefined|\n|Memory (System)|31.79GB (10.89GB free)|\n|Process Argv|--crash-reporter-id 37d5fba4-e1ab-4daf-987c-2c1fdd4f27eb|\n|Screen Reader|no|\n|VM|0%|\n</details><details><summary>Extensions (8",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332082",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: UI/UX ISSUE. STOP SHOVING A BRIGHT BLUE \"UPDATE\" COLOR THAT IMMEDIATELY TERMINATES MY AGENT THAT HAS BEEN WORKING FOR 90 MINUTES UP THE USERS EYEHOLE\n\nBody:\n<!-- ⚠️⚠️ Do Not Delete This! bug_report_template ⚠️⚠️ -->\n<!-- Please read our Rules of Conduct: https://opensource.microsoft.com/codeofconduct/ -->\n<!-- 🕮 Read our guide about submitting issues: https://github.com/microsoft/vscode/wiki/Submitting-Bugs-and-Suggestions -->\n<!-- 🔎 Search existing issues to avoid creating duplicates. -->\n<!-- 🧪 Test using the latest Insiders build to see if your issue has already been fixed: https://code.visualstudio.com/insiders/ -->\n<!-- 💡 Instead of creating your report here, use 'Report Issue' from the 'Help' menu in VS Code to pre-fill useful information. -->\n<!-- 🔧 Launch with `code --disable-extensions` to check. -->\nDoes this issue occur when all extensions are disabled?: Yes/No\n\n<!-- 🪓 If you answered No above, use 'Help: Start Extension Bisect' from Command Palette to try to identify the cause. -->\n<!-- 📣 Issues caused by an extension need to be reported directly to the extension publisher. The 'Help > Report Issue' dialog can assist with this. -->\n- VS Code Version: 1.134\n- OS Version: 25H2\n\nSteps to Reproduce:\n\n1.  Open VSCODE\n2.  Work for 90 minutes\n3.  Press the Update button\n4.  Punch your laptop\n\neven chrome has a progress lost even for stuff like music ...",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332115",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Sticky user messages makes me read an incomplete answer\n\nBody:\nAt this point, the sticky scroll message does more harm for my chat comprehension than good:\n* it comes in on top of the content obscuring what I'm reading\n* I know the message I just sent so it is not helpful\n* the scroll position in this case was lower but it was perfectly aligned with a heading. This made me start reading the AI answer mid-way and not from the start.  \n\nAssigning to this milestone so we please don't ship it in the current form widely.\n\nhttps://github.com/user-attachments/assets/db73e241-8448-487f-b5fc-fb22bcf59ddc\n\n\n```\nVersion: 1.135.0-insider\nCommit: e1801a05353f5f3e557f524b63a9d09cf7d736d1\nDate: 2026-08-21T16:58:25Z\nElectron: 42.8.1\nElectronBuildId: 14906494\nChromium: 148.0.7778.280\nNode.js: 24.18.1\nV8: 14.8.178.38-electron.0\n@github/copilot: 1.0.81-0\n@github/copilot-sdk: 1.0.11\nOS: Darwin arm64 25.6.0\n```",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332124",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Cannot drag the pet anymore from the pill area\n\nBody:\n* have pills\n* :bug: the pet can only be dragged from certain areas, there is a dom node blocking UI interaction\n\n<img width=\"625\" height=\"399\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/5bce103d-7c70-4e71-91a8-ca0dc315abae\" />\n\n```\nVersion: 1.135.0-insider\nCommit: e1801a05353f5f3e557f524b63a9d09cf7d736d1\nDate: 2026-08-21T16:58:25Z\nElectron: 42.8.1\nElectronBuildId: 14906494\nChromium: 148.0.7778.280\nNode.js: 24.18.1\nV8: 14.8.178.38-electron.0\n@github/copilot: 1.0.81-0\n@github/copilot-sdk: 1.0.11\nOS: Darwin arm64 25.6.0\n```",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  },
+  {
+   "id": "issue-332167",
+   "prompt": "Classify this GitHub issue into exactly one category: bug, feature-request, documentation.\nAnswer with the single category and nothing else.\n\nTitle: Pet's eyes overlap the laptop when size is increased\n\nBody:\n<!-- Please search existing issues to avoid creating duplicates -->\n<!-- Please attach logs to help us diagnose your issue -->\n\n- Copilot Chat Extension Version:\n- VS Code Version: `1.134.0`\n- OS Version: Win 11\n- Feature (e.g. agent/edit/ask mode): Pet\n- Selected model (e.g. GPT 4.1, Claude 3.7 Sonnet): any \n\nSteps to Reproduce:\n\n1. Increase the pet size\n2. drag it to the rightmost part of the chat\n3. type in the chat. -> the eyes are not on the pet's face anymore \n\n<img width=\"569\" height=\"328\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/c9b6e73c-1b86-4f08-bff8-28c86d2d7d65\" />",
+   "expect": {
+    "equals_ignoring_case": "bug"
+   }
+  }
+ ]
+}
