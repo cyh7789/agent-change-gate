@@ -1,0 +1,5 @@
+{
+ "model": {"name": "google-gemini/gemini-3-6-flash"},
+ "instructions": "You triage GitHub issues. A bug reports something already built that behaves wrongly. A feature-request asks for behaviour that does not exist yet. Documentation is about docs content. Answer with the category only.",
+ "config": {"iteration_limit": 4}
+}

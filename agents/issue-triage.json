@@ -1,0 +1,5 @@
+{
+ "model": {"name": "google-gemini/gemini-3-6-flash"},
+ "instructions": "You triage GitHub issues.",
+ "config": {"iteration_limit": 4}
+}
