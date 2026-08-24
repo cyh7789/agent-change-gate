@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", help="核准後要寫回的 GitHub repo（owner/name）")
     ap.add_argument("--branch", default="change-gate/candidate")
     ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--repeat", type=int, default=3,
+                    help="每個情境每組跑幾次。模型不是確定性的，跑一次分不出雜訊與真的退步")
     ap.add_argument("--yes", action="store_true", help="不詢問直接核准（僅供自動化，預設要人回答）")
     a = ap.parse_args(argv)
 
@@ -35,9 +37,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"scenarios: {len(scenarios)} from {scenarios.source}")
     print(f"digest: {scenarios.digest[:16]}…\n")
 
-    base = runner.run_arm("baseline", base_spec, scenarios, a.concurrency)
+    base = runner.run_arm("baseline", base_spec, scenarios, a.concurrency, a.repeat)
     print(f"baseline done: {base.completed}/{len(scenarios)} produced output, {base.total_tokens:,} tokens")
-    cand = runner.run_arm("candidate", cand_spec, scenarios, a.concurrency)
+    cand = runner.run_arm("candidate", cand_spec, scenarios, a.concurrency, a.repeat)
     print(f"candidate done: {cand.completed}/{len(scenarios)} produced output, {cand.total_tokens:,} tokens\n")
 
     comparison = report.Comparison(scenarios, base, cand)

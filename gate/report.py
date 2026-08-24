@@ -1,7 +1,11 @@
 """比較表：兩組跑完同一組情境之後，把差異寫成人看得懂的東西。
 
-寫給要按核准鈕的人看。他要能回答三件事才敢按：哪些情境變了、成本差多少、
-這份量尺有沒有被動過。所以逐筆結果、成本比、情境集 hash 三者缺一不可。
+寫給要按核准鈕的人看。他要能回答三件事才敢按：哪些情境真的變了、成本差多少、
+這份量尺有沒有被動過。
+
+「真的變了」需要跟雜訊分開。模型輸出不是確定性的：同一份 spec 連跑三次，
+16 題裡有一題給出 pass/fail/fail。所以每個情境跑多次、比的是通過次數，
+而任一組不穩定的情境標成 flaky，不算在變更帶來的差異裡。
 """
 from __future__ import annotations
 
@@ -18,61 +22,84 @@ class Comparison:
     baseline: ArmResult
     candidate: ArmResult
 
+    def _passes(self, arm: ArmResult, sid: str, expect: dict) -> int:
+        return sum(1 for r in arm.for_scenario(sid) if check(r.output, expect)[0])
+
     def rows(self) -> list[dict]:
-        by_id = {s.id: s for s in self.scenarios.scenarios}
-        base = {r.scenario_id: r for r in self.baseline.runs}
-        cand = {r.scenario_id: r for r in self.candidate.runs}
-        out = []
-        for sid in sorted(by_id):
-            expect = by_id[sid].expect
-            b_ok, b_why = check(base[sid].output if sid in base else None, expect)
-            c_ok, c_why = check(cand[sid].output if sid in cand else None, expect)
-            out.append({
-                "id": sid,
-                "baseline_pass": b_ok, "baseline_why": b_why,
-                "candidate_pass": c_ok, "candidate_why": c_why,
-                "delta": ("fixed" if c_ok and not b_ok else
-                          "broken" if b_ok and not c_ok else "same"),
-                "baseline_tokens": base[sid].metrics.get("total_tokens", 0) if sid in base else 0,
-                "candidate_tokens": cand[sid].metrics.get("total_tokens", 0) if sid in cand else 0,
-            })
-        return out
+        rows = []
+        for s in sorted(self.scenarios.scenarios, key=lambda x: x.id):
+            bn = len(self.baseline.for_scenario(s.id)) or 1
+            cn = len(self.candidate.for_scenario(s.id)) or 1
+            bp = self._passes(self.baseline, s.id, s.expect)
+            cp = self._passes(self.candidate, s.id, s.expect)
+            flaky = (0 < bp < bn) or (0 < cp < cn)
+            if flaky:
+                delta = "flaky"
+            elif cp == cn and bp < bn:
+                delta = "fixed"
+            elif bp == bn and cp < cn:
+                delta = "broken"
+            else:
+                delta = "same"
+            why = ""
+            if cp < cn:
+                for r in self.candidate.for_scenario(s.id):
+                    ok, reason = check(r.output, s.expect)
+                    if not ok:
+                        why = reason
+                        break
+            rows.append({"id": s.id, "baseline": f"{bp}/{bn}", "candidate": f"{cp}/{cn}",
+                         "delta": delta, "why": why,
+                         "baseline_pass": bp, "baseline_n": bn,
+                         "candidate_pass": cp, "candidate_n": cn})
+        return rows
 
     def summary(self) -> dict:
         rows = self.rows()
-        n = len(rows)
-        bp = sum(1 for r in rows if r["baseline_pass"])
-        cp = sum(1 for r in rows if r["candidate_pass"])
-        bt = self.baseline.total_tokens
-        ct = self.candidate.total_tokens
+        bt, ct = self.baseline.total_tokens, self.candidate.total_tokens
         return {
-            "scenarios": n,
-            "baseline_pass": bp, "candidate_pass": cp,
-            "baseline_rate": bp / n if n else 0.0,
-            "candidate_rate": cp / n if n else 0.0,
+            "scenarios": len(rows),
+            "repeats": max(self.baseline.repeats, 1),
+            "baseline_pass": sum(r["baseline_pass"] for r in rows),
+            "baseline_total": sum(r["baseline_n"] for r in rows),
+            "candidate_pass": sum(r["candidate_pass"] for r in rows),
+            "candidate_total": sum(r["candidate_n"] for r in rows),
             "fixed": sum(1 for r in rows if r["delta"] == "fixed"),
             "broken": sum(1 for r in rows if r["delta"] == "broken"),
+            "flaky": sum(1 for r in rows if r["delta"] == "flaky"),
             "baseline_tokens": bt, "candidate_tokens": ct,
             "token_ratio": (ct / bt) if bt else None,
         }
 
-    def to_markdown(self) -> str:
+    def verdict(self) -> str:
         s = self.summary()
-        rows = self.rows()
-        verdict = ("regression" if s["candidate_pass"] < s["baseline_pass"] else
-                   "improvement" if s["candidate_pass"] > s["baseline_pass"] else "no change")
+        if s["broken"] and not s["fixed"]:
+            return "regression"
+        if s["fixed"] and not s["broken"]:
+            return "improvement"
+        if s["fixed"] and s["broken"]:
+            return "mixed"
+        return "no change outside noise"
+
+    def to_markdown(self) -> str:
+        s, rows = self.summary(), self.rows()
         ratio = f"{s['token_ratio']:.2f}×" if s["token_ratio"] else "n/a"
+        br = s["baseline_pass"] / s["baseline_total"] if s["baseline_total"] else 0
+        cr = s["candidate_pass"] / s["candidate_total"] if s["candidate_total"] else 0
         lines = [
             "## Change Gate report",
             "",
-            f"**Verdict: {verdict}.** {s['candidate_pass']}/{s['scenarios']} passed, "
-            f"baseline {s['baseline_pass']}/{s['scenarios']}. "
-            f"{s['fixed']} fixed, {s['broken']} broken. Token cost {ratio} of baseline.",
+            f"**Verdict: {self.verdict()}.** {s['fixed']} fixed, {s['broken']} broken, "
+            f"{s['flaky']} flaky (unstable in at least one arm, not attributed to the change). "
+            f"Token cost {ratio} of baseline.",
+            "",
+            f"Every scenario ran {s['repeats']}× per arm, because the model is not deterministic: "
+            "a scenario that passes once and fails once tells you nothing about the change.",
             "",
             "| | baseline | candidate |",
             "|---|---|---|",
-            f"| passed | {s['baseline_pass']}/{s['scenarios']} ({s['baseline_rate']:.0%}) | "
-            f"{s['candidate_pass']}/{s['scenarios']} ({s['candidate_rate']:.0%}) |",
+            f"| passed | {s['baseline_pass']}/{s['baseline_total']} ({br:.0%}) | "
+            f"{s['candidate_pass']}/{s['candidate_total']} ({cr:.0%}) |",
             f"| total tokens | {s['baseline_tokens']:,} | {s['candidate_tokens']:,} |",
             "",
             "### Per scenario",
@@ -80,11 +107,8 @@ class Comparison:
             "| scenario | baseline | candidate | change | why |",
             "|---|---|---|---|---|",
         ]
-        mark = {True: "pass", False: "fail"}
         for r in rows:
-            why = r["candidate_why"] or r["baseline_why"] or ""
-            lines.append(f"| `{r['id']}` | {mark[r['baseline_pass']]} | {mark[r['candidate_pass']]} | "
-                         f"{r['delta']} | {why[:70]} |")
+            lines.append(f"| `{r['id']}` | {r['baseline']} | {r['candidate']} | {r['delta']} | {r['why'][:60]} |")
         lines += [
             "",
             "### Measuring stick",

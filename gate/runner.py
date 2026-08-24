@@ -33,10 +33,25 @@ class ScenarioRun:
 
 @dataclass
 class ArmResult:
-    """一組（基準或候選）跑完整組情境的結果。"""
+    """一組（基準或候選）跑完整組情境的結果。
+
+    同一個情境可能被跑很多次：模型輸出不是確定性的，實測同一份 spec 連跑三次，
+    16 題裡有 1 題給出 pass/fail/fail。只跑一次的話，那一題會被當成變更造成的
+    退步報上去，而它跟變更無關。
+    """
     label: str
     agent_name: str
     runs: list[ScenarioRun] = field(default_factory=list)
+
+    def for_scenario(self, scenario_id: str) -> list[ScenarioRun]:
+        return [r for r in self.runs if r.scenario_id == scenario_id]
+
+    @property
+    def repeats(self) -> int:
+        if not self.runs:
+            return 0
+        first = self.runs[0].scenario_id
+        return sum(1 for r in self.runs if r.scenario_id == first)
 
     @property
     def completed(self) -> int:
@@ -64,7 +79,8 @@ def _run_one(agent_name: str, sc: Scenario) -> ScenarioRun:
 
 
 def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
-            concurrency: int = 4, on_result: Callable[[ScenarioRun], None] | None = None) -> ArmResult:
+            concurrency: int = 4, repeat: int = 1,
+            on_result: Callable[[ScenarioRun], None] | None = None) -> ArmResult:
     """建一個一次性 agent，對整組情境跑一遍。
 
     agent 名字帶亂數後綴：同一份 manifest 可能被跑很多次，重名會撞到既有 agent，
@@ -73,8 +89,9 @@ def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
     agent_name = f"{label}-{uuid.uuid4().hex[:8]}"
     harness.create_agent(agent_name, manifest)
     arm = ArmResult(label=label, agent_name=agent_name)
+    jobs = [sc for sc in scenarios.scenarios for _ in range(max(1, repeat))]
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        for run in pool.map(lambda sc: _run_one(agent_name, sc), scenarios.scenarios):
+        for run in pool.map(lambda sc: _run_one(agent_name, sc), jobs):
             arm.runs.append(run)
             if on_result:
                 on_result(run)
