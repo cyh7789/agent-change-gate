@@ -28,39 +28,43 @@ class GateState:
     result: str | None = None
     error: str | None = None
 
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    _decided: threading.Event = field(default_factory=threading.Event, repr=False)
-    _allow: bool = False
+    _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
+    _answer: bool | None = None
 
     def update(self, **fields) -> None:
-        with self._lock:
+        with self._cond:
             for k, v in fields.items():
                 setattr(self, k, v)
 
     def count_run(self) -> None:
-        with self._lock:
+        with self._cond:
             self.runs_done += 1
 
     def snapshot(self) -> dict:
-        with self._lock:
+        with self._cond:
             return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     # --- 核准：評測執行緒等在這裡，介面按鈕解開它 ---
 
     def ask(self, tool_summary: str) -> bool:
-        """擋住呼叫端，直到有人按下核准或拒絕。"""
-        with self._lock:
+        """擋住呼叫端，直到有人按下核准或拒絕。
+
+        公布 pending、丟掉上一次的答案、開始等待，全在同一把鎖底下：決定要進來就得
+        先拿到這把鎖，所以不會有一個答案卡在「已經送出、但還沒開始等」的縫裡消失。
+        """
+        with self._cond:
+            self._answer = None
             self.pending = tool_summary
             self.phase = "awaiting-approval"
             self.approvals += 1
-        self._decided.clear()
-        self._decided.wait()
-        with self._lock:
+            while self._answer is None:
+                self._cond.wait()
+            allow = self._answer
             self.pending = None
-            self.phase = "landing" if self._allow else "rejected"
-            return self._allow
+            self.phase = "landing" if allow else "rejected"
+            return allow
 
     def decide(self, allow: bool) -> None:
-        with self._lock:
-            self._allow = allow
-        self._decided.set()
+        with self._cond:
+            self._answer = allow
+            self._cond.notify_all()

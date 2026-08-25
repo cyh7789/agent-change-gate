@@ -48,7 +48,12 @@ def batch_prompt(items: list[tuple[int, Scenario]], instructions: str) -> str:
 
 
 def _marker_of(text: str) -> int | None:
-    m = re.search(rf"{MARKER}\s+(\d+)", text or "")
+    """只認行首那一個標記。
+
+    規則和題目文字都在 item 裡，內文提到 "ITEM 3" 的機會不低；不錨定的話那句話
+    會把答案搶到別的情境上，而報表看起來完全正常。
+    """
+    m = re.search(rf"^{MARKER}\s+(\d+)\s*$", text or "", re.MULTILINE)
     return int(m.group(1)) if m else None
 
 
