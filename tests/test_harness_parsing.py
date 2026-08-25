@@ -124,3 +124,38 @@ def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
     monkeypatch.setattr(harness, "_stream", fake_stream)
     assert harness.run_turn("sess", "hi").output == "done"
     assert len(calls) == 1
+
+
+class _FakeResponse:
+    """urlopen 回傳物件的替身：可迭代出位元組行，且是 context manager。"""
+
+    def __init__(self, raw: bytes):
+        self._lines = raw.splitlines(keepends=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        return iter(self._lines)
+
+
+def test_sequence_id_belongs_to_the_event_it_follows(monkeypatch):
+    """harness 送的是 `data:` 在前、`id:` 在後，兩者屬於同一個 SSE 事件。
+
+    把 id 記給下一個事件的話，每個事件都帶前一個的編號，續接游標就會少一格
+    並重放一個已經收到的事件。
+    """
+    from gate import harness
+
+    raw = (b'data: {"type":"turn.created"}\nid: 1\n\n'
+           b'data: {"type":"model.message"}\nid: 2\n\n'
+           b'data: {"type":"turn.done","state":{}}\nid: 3\n\n')
+    monkeypatch.setattr(harness.urllib.request, "urlopen",
+                        lambda req, timeout=None: _FakeResponse(raw))
+
+    events = list(harness._stream("http://x/turns", {"input": []}))
+    assert [(e.type, e.seq) for e in events] == [
+        ("turn.created", 1), ("model.message", 2), ("turn.done", 3)]
