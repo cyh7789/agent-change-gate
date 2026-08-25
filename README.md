@@ -69,9 +69,18 @@ Read it as a decision rather than a scoreboard: the change costs 7% more tokens
 on every run, and the only scenario that moved at all is one neither spec answers
 consistently. There is nothing here to pay 7% for.
 
-That one scenario is also the argument for running each spec more than once. A
-single run per arm gives baseline fail, candidate pass, and a report calling the
-change an improvement. Three runs show a coin flip.
+That one scenario is also the argument for running each spec more than once, and
+the repository has both readings side by side. [PR #8](https://github.com/cyh7789/agent-change-gate/pull/8)
+was opened by the gate itself from a one-run-per-arm evaluation, and its body says:
+
+```
+Verdict: improvement. 1 fixed, 0 broken, 0 flaky. Token cost 0.94x of baseline.
+```
+
+Same two specs, same 16 scenarios. One run per arm: an improvement that also saves
+6% tokens. Three runs per arm: a coin flip that costs 7% more. The single run got
+both the direction and the sign of the cost wrong, and nothing about that report
+looks uncertain.
 
 ## Setup
 
