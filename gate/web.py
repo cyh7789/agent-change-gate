@@ -34,11 +34,46 @@ PAGE = """<!doctype html>
    --blue:#5b8cff; --green:#3fb37f; --amber:#e0a83c; --red:#e35d5d; --violet:#a98bf5; }
  * { box-sizing:border-box; }
  body { font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-        background:var(--bg); color:var(--ink); margin:0; padding:34px 40px 60px; }
+        background:var(--bg); color:var(--ink); margin:0; display:flex; min-height:100vh; }
  code, .mono, table { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
- header { display:flex; align-items:baseline; gap:14px; margin-bottom:22px; }
+
+ /* 左欄：這次執行的身分，加上分區錨點。少了它整頁只剩內容，讀起來像一份報表不像工具 */
+ nav { width:216px; flex:none; border-right:1px solid var(--line); background:#0b0d13;
+       padding:22px 16px; display:flex; flex-direction:column; gap:20px; }
+ nav h1 { font-size:15px; margin:0; font-weight:650; letter-spacing:-.01em; }
+ nav .who { font-size:12px; color:var(--dim); line-height:1.5; word-break:break-all; }
+ nav .who b { display:block; color:#aab2c8; font-weight:500; }
+ nav ul { list-style:none; margin:0; padding:0; }
+ nav li a { display:flex; justify-content:space-between; gap:8px; padding:6px 9px;
+            border-radius:7px; color:var(--dim); font-size:13px; text-decoration:none; }
+ nav li a:hover { background:var(--panel); color:var(--ink); }
+ nav li a i { font-style:normal; font-size:11px; color:#5a6076; }
+ nav .foot { margin-top:auto; font-size:11.5px; color:#5a6076; display:flex;
+             align-items:center; gap:7px; }
+ .pulse { width:7px; height:7px; border-radius:50%; background:var(--green);
+          animation:pulse 2s ease-in-out infinite; }
+ @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+
+ main { flex:1; padding:26px 34px 70px; min-width:0; }
+ header { display:flex; align-items:baseline; gap:14px; margin-bottom:14px; }
  h1 { font-size:19px; margin:0; font-weight:600; letter-spacing:-.01em; }
  .repo { color:var(--dim); font-size:13px; }
+
+ /* 參數列：這次跑的到底是什麼配置。原本只有一行小字 */
+ .params { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
+ .param { border:1px solid var(--line); background:var(--panel); border-radius:7px;
+          padding:4px 9px; font-size:11.5px; color:var(--dim);
+          font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+ .param b { color:#aab2c8; font-weight:500; }
+ .ghost { margin-left:auto; background:transparent; border:1px solid var(--line);
+          color:var(--dim); font-size:12px; padding:5px 11px; border-radius:7px; }
+ .ghost:hover { color:var(--ink); border-color:#3a4157; }
+
+ /* 表格篩選：16 列裡只有 1 列有話要說，讓人自己挑要看哪一群 */
+ .chips { display:flex; gap:6px; margin:16px 0 2px; }
+ .chip { border:1px solid var(--line); background:transparent; color:var(--dim);
+         font-size:12px; padding:4px 11px; border-radius:999px; }
+ .chip.on { color:var(--ink); border-color:var(--blue); background:#16203a; }
 
  /* 階段列：每一格自己說明它在做什麼，不是一個色塊 */
  .steps { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
@@ -113,17 +148,24 @@ PAGE = """<!doctype html>
            padding:16px 20px; margin:22px 0; }
  a { color:var(--blue); }
 </style>
-<header><h1>Agent Change Gate</h1><span class="repo" id="repo"></span></header>
-<div class="steps" id="steps"></div>
-<div class="bar"><div id="fill"></div></div>
-<div class="runline" id="progress"></div>
-<div class="runline mono" id="specs"></div>
-<div id="gate"></div>
-<div class="verdict" id="verdict"></div>
-<div class="cards" id="cards"></div>
-<div class="live" id="live"></div>
-<div id="table"></div>
-<div id="analysis"></div>
+<nav>
+  <div><h1>Agent Change Gate</h1><div class="who" id="who"></div></div>
+  <ul id="nav"></ul>
+  <div class="foot"><span class="pulse"></span><span id="tickinfo">polling /state</span></div>
+</nav>
+<main>
+  <header><h1 id="phasehead">starting</h1><span class="repo" id="repo"></span></header>
+  <div class="steps" id="steps"></div>
+  <div class="bar"><div id="fill"></div></div>
+  <div class="runline" id="progress"></div>
+  <div class="params" id="params"></div>
+  <div id="gate"></div>
+  <div id="verdict" class="verdict"></div>
+  <div class="cards" id="cards"></div>
+  <div class="live" id="live"></div>
+  <div id="table"></div>
+  <div id="analysis"></div>
+</main>
 <script>
 const TOKEN = "__TOKEN__";
 const $ = id => document.getElementById(id);
@@ -131,9 +173,21 @@ const $ = id => document.getElementById(id);
 // 直接塞進 innerHTML 等於讓被評測的 agent 決定這一頁執行什麼。
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// 標題用一句人話交代現在在幹嘛，不是把內部 phase 字串丟出去
+const PHASE_TITLE = {
+  'starting': 'starting up',
+  'evaluating': 'running the scenario set against both specs',
+  'reading the results in the sandbox': 'reading the results in a sandbox',
+  'report ready': 'report ready',
+  'awaiting-approval': 'waiting for you to decide',
+  'landing': 'landing the change',
+  'landed': 'landed on GitHub',
+  'rejected': 'rejected — nothing reached GitHub',
+  'failed': 'run failed',
+};
 const cls = d => ({same:'same',flaky:'flaky',broken:'broken',fixed:'fixed',
                    unproven:'unproven',incomplete:'incomplete'}[d]||'');
-let openFold = false;
+let filter = 'all';   // all | moved | same
 
 // 階段名字自己交代在做什麼，讀的人不必先認得這個工具
 const STEPS = [
@@ -171,7 +225,7 @@ function verdict(s) {
   if (same) bits.push(`${same} identical in both arms`);
   const cost = s.baseline_tokens ? (s.candidate_tokens / s.baseline_tokens) : 0;
   const costed = cost ? ` Costs ${cost.toFixed(2)}× the tokens of the current spec.` : '';
-  return `<div class="v ${tone}">${esc(s.verdict)}</div>
+  return `<div id="verdict-anchor"></div><div class="v ${tone}">${esc(s.verdict)}</div>
           <div class="why">${esc(bits.join(' · '))}.${esc(costed)}</div>`;
 }
 
@@ -214,24 +268,56 @@ function checklist(s) {
   return `<ul class="checklist">${items}</ul>`;
 }
 
-// 全都一樣的那些列收成一行：16 列裡通常只有 1 列有話要說
+// 16 列裡通常只有 1 列有話要說，預設只給那一群，其餘讓人自己挑
 function table(s) {
   const rows = s.rows || [];
   if (!rows.length) return '';
   const moved = rows.filter(r => r.delta !== 'same');
   const same = rows.filter(r => r.delta === 'same');
+  const shown = filter === 'moved' ? moved : filter === 'same' ? same : rows;
+  const chip = (k, label, n) =>
+    `<button class="chip ${filter === k ? 'on' : ''}" onclick="setFilter('${k}')">${
+      esc(label)} ${n}</button>`;
+  const chips = `<div class="chips">${chip('all','all',rows.length)}${
+    chip('moved','moved',moved.length)}${chip('same','same',same.length)}</div>`;
   const tr = r => `<tr><td>${esc(r.id)}</td><td>${esc(r.baseline)}</td><td>${esc(r.candidate)}</td>
     <td class="${cls(r.delta)}">${esc(r.delta)}</td><td>${esc((r.why||'').slice(0,70))}</td></tr>`;
-  const head = `<table class="rows"><tr><th>scenario</th><th>baseline</th><th>candidate</th>
-                <th>change</th><th>why</th></tr>`;
-  const fold = same.length
-    ? `<div class="fold" onclick="toggleFold()">${openFold ? '▾' : '▸'} ${same.length}
-       scenarios scored the same in both arms</div>`
-    : '';
-  return head + moved.map(tr).join('') + '</table>' + fold +
-         (openFold && same.length ? head + same.map(tr).join('') + '</table>' : '');
+  return `<h3 id="scenarios">per scenario</h3>` + chips +
+    `<table class="rows"><tr><th>scenario</th><th>baseline</th><th>candidate</th>
+     <th>change</th><th>why</th></tr>` + shown.map(tr).join('') + '</table>';
 }
-function toggleFold() { openFold = !openFold; tick(); }
+function setFilter(k) { filter = k; tick(); }
+
+// 左欄：這次執行的身分，加上帶數字的分區錨點
+function rail(s) {
+  const rows = s.rows || [];
+  const moved = rows.filter(r => r.delta !== 'same').length;
+  const links = [
+    ['verdict', 'Verdict', s.verdict ? '' : 'pending'],
+    ['scenarios', 'Scenarios', rows.length ? `${moved}/${rows.length} moved`
+                                           : `${s.runs_done}/${s.runs_total || '?'} runs`],
+    ['approvals', 'Approvals', s.repo ? `${(s.decided||[]).length}/${WRITES.length} writes` : 'n/a'],
+    ['sandbox', 'Sandbox read', s.analysis ? 'ready' : '–'],
+  ];
+  return links.map(([id, label, note]) =>
+    `<li><a href="#${id}">${esc(label)}<i>${esc(note)}</i></a></li>`).join('');
+}
+
+// 參數列：這次量的是哪一把尺、跑幾次、幾題一批
+function params(s) {
+  const p = (k, v) => v ? `<span class="param">${esc(k)} <b>${esc(v)}</b></span>` : '';
+  return p('scenarios', s.source ? s.source.replace(/^https?:\/\//, '') : '')
+       + p('digest', s.digest ? s.digest.slice(0, 12) + '…' : '')
+       + p('repeat', s.repeats || '')
+       + p('batch', s.batch_size || '')
+       + (s.report_md
+          ? `<button class="ghost" onclick="copyReport()">Copy report</button>` : '');
+}
+async function copyReport() {
+  const md = await (await fetch('/report.md')).text();
+  await navigator.clipboard.writeText(md);
+  document.querySelector('.ghost').textContent = 'Copied';
+}
 
 // 評測跑十幾分鐘，這段時間畫面上只有進度列的話等於空的。
 // 一題一格、每跑完一次點一顆，扇出在動這件事就看得見。
@@ -252,6 +338,15 @@ function live(s) {
 async function tick() {
   const s = await (await fetch('/state')).json();
   $('repo').textContent = s.repo ? s.repo + (s.branch ? ' · ' + s.branch : '') : '';
+  $('phasehead').textContent = s.error ? 'run failed' : PHASE_TITLE[s.phase] || s.phase;
+  $('who').innerHTML = s.spec
+    ? `<b>${esc(s.spec.split('/').pop())}</b>vs <b>${esc(s.candidate.split('/').pop())}</b>`
+      + (s.repo ? `<div style="margin-top:8px">${esc(s.repo)}</div>` : '')
+    : '';
+  $('nav').innerHTML = rail(s);
+  $('params').innerHTML = params(s);
+  $('tickinfo').textContent = s.phase === 'landed' || s.phase.startsWith('done')
+    ? 'run finished' : 'polling /state';
   $('steps').innerHTML = s.error
     ? `<span class="step bad">${esc(s.phase)}: ${esc(s.error)}</span>` : steps(s);
   const pct = s.runs_total ? Math.round(100 * s.runs_done / s.runs_total) : 0;
@@ -259,7 +354,6 @@ async function tick() {
   $('progress').textContent = s.runs_total
     ? `${s.runs_done} / ${s.runs_total} scenario runs · one subagent each`
     : '';
-  $('specs').textContent = s.spec ? `${s.spec}  vs  ${s.candidate}` : '';
   $('gate').innerHTML = gate(s);
   $('verdict').innerHTML = verdict(s);
   const sm = s.summary || {};
@@ -274,7 +368,7 @@ async function tick() {
   $('live').innerHTML = live(s);
   $('table').innerHTML = table(s);
   $('analysis').innerHTML = s.analysis
-    ? '<h3>read by code the agent ran in its sandbox</h3><pre>' + esc(s.analysis) + '</pre>' : '';
+    ? '<h3 id="sandbox">read by code the agent ran in its sandbox</h3><pre>' + esc(s.analysis) + '</pre>' : '';
 }
 async function decide(allow) {
   await fetch('/decide', {method:'POST', headers:{'X-Gate-Token': TOKEN},
@@ -294,7 +388,8 @@ def run_gate(a, state: GateState) -> None:
         total = len(scenarios) * max(1, a.repeat)
         state.update(scenarios=len(scenarios), repeats=a.repeat, runs_total=total * 2,
                      repo=a.repo or "", branch=a.branch if a.repo else "",
-                     spec=a.spec, candidate=a.candidate,
+                     spec=a.spec, candidate=a.candidate, batch_size=a.batch_size,
+                     source=scenarios.source, digest=scenarios.digest,
                      phase="evaluating", arm="baseline")
 
         base = runner.run_arm("baseline", base_spec, scenarios, a.batch_size, a.repeat,
@@ -310,7 +405,7 @@ def run_gate(a, state: GateState) -> None:
         read = None if a.no_analysis else analysis.interpret(comparison.rows())
         md = comparison.to_markdown(read)
         Path("change-gate-report.md").write_text(md + "\n")
-        state.update(analysis=read, phase="report ready")
+        state.update(analysis=read, report_md=md, phase="report ready")
 
         if not a.repo:
             state.update(phase="done (evaluation only)")
@@ -350,6 +445,9 @@ def serve(state: GateState, port: int, token: str) -> None:
         def do_GET(self):
             if self.path == "/state":
                 self._send(json.dumps(state.snapshot()).encode(), "application/json")
+            elif self.path == "/report.md":
+                body = (state.snapshot().get("report_md") or "").encode()
+                self._send(body, "text/markdown; charset=utf-8")
             else:
                 self._send(page, "text/html; charset=utf-8")
 

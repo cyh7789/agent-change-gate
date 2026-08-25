@@ -17,6 +17,9 @@ class GateState:
     branch: str = ""
     spec: str = ""      # 正在比的是哪兩份 spec，評測跑的時候畫面上只剩這個
     candidate: str = ""
+    source: str = ""    # 情境集的出處與 digest，介面上要看得到這次量的是哪一把尺
+    digest: str = ""
+    batch_size: int = 0
     scenarios: int = 0
     repeats: int = 1
     runs_done: int = 0
@@ -30,6 +33,7 @@ class GateState:
     summary: dict = field(default_factory=dict)
     verdict: str = ""
     analysis: str | None = None
+    report_md: str = ""   # 介面的 Copy report 從這裡拿，不用再讀一次磁碟
     pending: dict | None = None
     approvals: int = 0
     # 已經決定過的寫入，照順序：介面把三次寫入畫成一份逐項清單
