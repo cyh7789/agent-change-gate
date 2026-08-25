@@ -6,6 +6,7 @@ turn 端點回的是 SSE，不是 JSON —— 事件逐筆帶單調遞增的 seq
 """
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -70,6 +71,21 @@ class TurnResult:
         return list(seen.values())
 
     @property
+    def turn_id(self) -> str | None:
+        for e in self.events:
+            if e.type == "turn.created":
+                tid = e.data.get("turn_id") or (e.data.get("state") or {}).get("id")
+                if tid:
+                    return tid
+        return None
+
+    @property
+    def finished(self) -> bool:
+        """這個 turn 已經有結局：跑完、失敗，或停在核准閘。"""
+        return self.pending_approval is not None or any(
+            e.type in ("turn.done", "turn.failed") for e in self.events)
+
+    @property
     def last_seq(self) -> int | None:
         for e in reversed(self.events):
             if e.seq is not None:
@@ -118,9 +134,8 @@ def _stream(url: str, body: dict | None) -> Iterator[Event]:
             yield Event(seq=seq, type=payload.get("type", ""), data=payload)
 
 
-def _consume(events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
+def _consume_into(out: TurnResult, events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
     # 完成事件是 `turn.done`（不是 turn.completed）。實測 SSE 事件名，別照猜的寫。
-    out = TurnResult()
     for ev in events:
         out.events.append(ev)
         if ev.type == "tool.approval_required" and stop_at_approval:
@@ -134,15 +149,48 @@ def _consume(events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
     return out
 
 
-def run_turn(session_id: str, message: str, stop_at_approval: bool = True) -> TurnResult:
+def _consume(events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
+    return _consume_into(TurnResult(), events, stop_at_approval)
+
+
+DROPPED = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError)
+
+
+def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
+             reconnects: int = 3) -> TurnResult:
+    """跑一個 turn，連線掉了就從斷點續接。
+
+    turn 在伺服器那端繼續跑，所以斷線不該讓整批重來 —— 一批情境要跑好幾分鐘，
+    重跑的代價是整批的 token。續接用 sequence 當 exclusive cursor，事件不重複也不遺漏。
+    """
     body = {"input": [{"type": "user.message", "content": message}]}
-    return _consume(_stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval)
+    out = TurnResult()
+    try:
+        _consume_into(out, _stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval)
+    except DROPPED:
+        pass
+    for _ in range(reconnects):
+        if out.finished:
+            break
+        turn_id, after = out.turn_id, out.last_seq
+        if turn_id is None or after is None:
+            break                     # 連 turn.created 都沒收到，沒有可續接的對象
+        try:
+            _consume_into(out, _stream(_subscribe_url(session_id, turn_id, after), None),
+                          stop_at_approval)
+        except DROPPED:
+            continue
+    return out
+
+
+def _subscribe_url(session_id: str, turn_id: str, after_seq: int) -> str:
+    return f"{BASE}/sessions/{session_id}/turns/{turn_id}/subscribe?after_sequence_number={after_seq}"
 
 
 def resume_turn(session_id: str, turn_id: str, after_seq: int) -> TurnResult:
     """從斷點續接。after_seq 是 exclusive：只重放編號更大的事件。"""
-    url = f"{BASE}/sessions/{session_id}/turns/{turn_id}/subscribe?after_sequence_number={after_seq}"
-    return _consume(_stream(url, None), stop_at_approval=True)
+    return _consume(_stream(_subscribe_url(session_id, turn_id, after_seq), None),
+                    stop_at_approval=True)
 
 
 def decide(session_id: str, thread_id: str, tool_call_id: str, allow: bool, reason: str = "") -> TurnResult:

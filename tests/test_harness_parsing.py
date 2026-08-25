@@ -66,3 +66,61 @@ def test_approval_can_be_streamed_through_when_resolving():
         (2, "turn.done", {"state": {"output": {"content": "done"}}}),
     ), stop_at_approval=False)
     assert out.output == "done"
+
+
+def test_a_dropped_stream_resumes_from_the_last_sequence(monkeypatch):
+    """連線斷在半路：turn 在伺服器那端還在跑，續接要補完而不是重跑整個 turn。"""
+    from gate import harness
+
+    calls = []
+
+    def fake_stream(url, body):
+        calls.append(url)
+        if len(calls) == 1:
+            yield Event(1, "turn.created", {"turn_id": "t-1"})
+            yield Event(2, "model.message", {})
+            raise ConnectionError("connection reset")
+        yield Event(3, "tool.response", {})
+        yield Event(4, "turn.done", {"state": {"output": {"content": "late answer"},
+                                               "metrics": {"total_tokens": 11}}})
+
+    monkeypatch.setattr(harness, "_stream", fake_stream)
+    out = harness.run_turn("sess", "hello")
+
+    assert out.output == "late answer"
+    assert out.metrics["total_tokens"] == 11
+    assert [e.seq for e in out.events] == [1, 2, 3, 4]
+    assert "after_sequence_number=2" in calls[1] and "t-1" in calls[1]
+
+
+def test_reconnect_gives_up_when_the_turn_never_started(monkeypatch):
+    """連 turn.created 都沒收到就沒有可續接的對象，重試只會空轉。"""
+    from gate import harness
+
+    calls = []
+
+    def fake_stream(url, body):
+        calls.append(url)
+        raise ConnectionError("refused")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(harness, "_stream", fake_stream)
+    out = harness.run_turn("sess", "hello", reconnects=3)
+
+    assert out.output is None
+    assert len(calls) == 1
+
+
+def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
+    from gate import harness
+
+    calls = []
+
+    def fake_stream(url, body):
+        calls.append(url)
+        yield Event(1, "turn.created", {"turn_id": "t-1"})
+        yield Event(2, "turn.done", {"state": {"output": {"content": "done"}}})
+
+    monkeypatch.setattr(harness, "_stream", fake_stream)
+    assert harness.run_turn("sess", "hi").output == "done"
+    assert len(calls) == 1

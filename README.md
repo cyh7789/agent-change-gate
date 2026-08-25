@@ -35,7 +35,7 @@ The gate is not a script that calls an LLM API. The harness does the work:
 | **Code Mode** | The statistical read of the results (Wilson intervals, per-scenario stability) is **code the agent writes and runs in its sandbox**. The verdict is not: that stays in deterministic Python, so the same outputs always score the same. |
 | **Real tools via MCP** | Landing the change goes through the GitHub MCP server — branch, commit, pull request. No REST calls behind the harness's back. |
 | **Human approval** | Because the write goes through a tool, `require_approval_for_tools: ["@write", "@destructive"]` catches it. The run pauses, prints the report, and waits. |
-| **Resumable sessions** | Turn streams are SSE with monotonic sequence ids; `after_sequence_number` is an exclusive cursor, so a dropped connection resumes without replaying or losing events. |
+| **Resumable sessions** | A batch takes minutes, and the turn keeps running on the server if the connection drops. `run_turn` resumes from the last sequence id it saw (`after_sequence_number` is an exclusive cursor), so a drop costs no tokens and loses no events — `probe/reconnect.py` cuts a live connection and shows the turn completing anyway. |
 
 Why the fan-out matters: calling the harness from a `ThreadPoolExecutor` treats it
 as an HTTP endpoint. Handing the batch to subagents is the harness doing the work.
