@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import report, runner, writeback
+from . import analysis, report, runner, writeback
 from .scenarios import load
 
 
@@ -28,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="一批交給幾個 subagent。批內由 harness 扇出，批之間序列跑")
     ap.add_argument("--repeat", type=int, default=3,
                     help="每個情境每組跑幾次。模型不是確定性的，跑一次分不出雜訊與真的退步")
+    ap.add_argument("--no-analysis", action="store_true",
+                    help="跳過 sandbox 統計解讀（判決不受影響）")
     ap.add_argument("--yes", action="store_true", help="不詢問直接核准（僅供自動化，預設要人回答）")
     a = ap.parse_args(argv)
 
@@ -44,7 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"candidate done: {cand.completed}/{len(cand.runs)} produced output, {cand.total_tokens:,} tokens\n")
 
     comparison = report.Comparison(scenarios, base, cand)
-    md = comparison.to_markdown()
+    read = None if a.no_analysis else analysis.interpret(comparison.rows())
+    if read is None and not a.no_analysis:
+        print("(statistical read skipped: the sandbox analyst produced nothing)")
+    md = comparison.to_markdown(read)
     print(md)
     Path("change-gate-report.md").write_text(md + "\n")
 

@@ -81,7 +81,7 @@ class Comparison:
             return "mixed"
         return "no change outside noise"
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, analysis: str | None = None) -> str:
         s, rows = self.summary(), self.rows()
         ratio = f"{s['token_ratio']:.2f}×" if s["token_ratio"] else "n/a"
         br = s["baseline_pass"] / s["baseline_total"] if s["baseline_total"] else 0
@@ -109,6 +109,17 @@ class Comparison:
         ]
         for r in rows:
             lines.append(f"| `{r['id']}` | {r['baseline']} | {r['candidate']} | {r['delta']} | {r['why'][:60]} |")
+        if analysis:
+            lines += [
+                "",
+                "### Statistical read",
+                "",
+                analysis,
+                "",
+                "_Computed by code the agent wrote and ran in its sandbox, from the pass "
+                "counts above. The verdict itself is not: it comes from the deterministic "
+                "checks, so the same outputs always score the same._",
+            ]
         lines += [
             "",
             "### Measuring stick",
