@@ -82,6 +82,42 @@ Same two specs, same 16 scenarios. One run per arm: an improvement that also sav
 both the direction and the sign of the cost wrong, and nothing about that report
 looks uncertain.
 
+## What three runs still cannot settle
+
+The same two specs, evaluated four times at three runs per arm, did not reach the same
+verdict:
+
+| run | baseline | candidate | `issue-332082` | verdict | tokens |
+|---|---|---|---|---|---|
+| 1 | 43/48 | 42/48 | 1/3 → 0/3 | no change outside noise | 1.01x |
+| 2 | 42/48 | 43/48 | 0/3 → 1/3 | no change outside noise | 1.07x |
+| 3 | 44/48 | 45/48 | 2/3 → 3/3 | no change outside noise | 1.03x |
+| 4 | 42/48 | 45/48 | **0/3 → 3/3** | **improvement** | 1.10x |
+
+(Run 1 predates the fix in #5 and was comparing two specs that were never in effect; it is
+here for completeness, not as evidence.)
+
+One scenario drives all of it, and the fourth run exposes a real limitation in how `flaky`
+is decided. The rule is "unstable in either arm", implemented as a partial pass:
+`0 < passes < n`. When a scenario happens to land 0/3 in one arm and 3/3 in the other,
+neither arm is partial, so nothing looks unstable and the change is credited with fixing it.
+
+Three runs is enough to catch the direction error a single run makes, and not enough to settle a
+scenario this noisy. Counting passes is the wrong instrument for that last step; comparing
+intervals is the right one, and the sandbox read already does it:
+
+```
+Wilson intervals overlap: True
+→ the increase from baseline to candidate is not statistically significant at 95%
+```
+
+So on the run that the deterministic verdict called an improvement, the statistical read
+called it noise. The two layers have different blind spots, which is an argument for keeping
+both rather than for trusting either alone. Folding interval overlap into the verdict itself
+is the obvious next change, and it is deliberately not in this submission: the demo video
+records the current behaviour, and shipping a different rule than the one on camera would be
+worse than the limitation.
+
 ## Setup
 
 Needs Python 3.11+, Node (for `npx`), the `gh` CLI logged in, and a Gemini API key.
