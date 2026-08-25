@@ -196,6 +196,12 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
                           stop_at_approval)
         except DROPPED:
             continue
+    if not out.finished:
+        # 空手回去的話，呼叫端只看得到「沒有輸出」，那會被寫成模型答不出來。
+        raise HarnessError(
+            f"turn {out.turn_id} never reached a terminal event after {reconnects} reconnects"
+            if out.turn_id else
+            "the turn stream dropped before turn.created, so there is nothing to resume")
     return out
 
 

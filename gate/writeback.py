@@ -6,6 +6,7 @@ harness 的核准閘是掛在工具呼叫上的，繞過工具就繞過了閘門
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Callable
 
@@ -39,11 +40,10 @@ def _pending(session_id: str, event: dict) -> PendingWrite:
 
 def propose(repo: str, branch: str, path: str, content: str, title: str, report_md: str) -> PendingWrite | None:
     """送出寫回請求，回傳停在核准閘的那一刻。None 代表 agent 沒有觸發任何需要核准的工具。"""
-    name = f"writeback-{branch.replace('/', '-')}"
-    try:
-        harness.create_agent(name, WRITEBACK_AGENT)
-    except harness.HarnessError:
-        pass                      # 同名已存在就沿用
+    # 名字帶亂數：固定名字碰上既有的同名 agent 會沿用它的設定，而那份設定的
+    # require_approval_for_tools 可能是別人調過的，核准閘就這樣被繞過去。
+    name = f"writeback-{uuid.uuid4().hex[:8]}"
+    harness.create_agent(name, WRITEBACK_AGENT)
     sid = harness.create_session(name)
     msg = (
         f"Repository: {repo}\n"

@@ -108,10 +108,11 @@ def test_reconnect_gives_up_when_the_turn_never_started(monkeypatch):
         yield  # pragma: no cover
 
     monkeypatch.setattr(harness, "_stream", fake_stream)
-    out = harness.run_turn("sess", "hello", reconnects=3)
+    with pytest.raises(harness.HarnessError) as e:
+        harness.run_turn("sess", "hello", reconnects=3)
 
-    assert out.output is None
-    assert len(calls) == 1
+    assert "nothing to resume" in str(e.value)
+    assert len(calls) == 1, "沒有 turn_id 就無從續接，不該重試"
 
 
 def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
