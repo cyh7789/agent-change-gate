@@ -195,3 +195,27 @@ def test_a_turn_that_never_finished_raises_instead_of_looking_empty(monkeypatch)
     with pytest.raises(harness.HarnessError) as e:
         harness.run_turn("sess", "hello", reconnects=2)
     assert "t-1" in str(e.value)
+
+
+def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkeypatch):
+    """連線斷在 turn.created 之前，turn 仍在伺服器上跑。
+
+    把 turn 丟掉等於白燒那次呼叫，而 session 這邊查得到它是哪一個。
+    """
+    from gate import harness
+
+    calls = []
+
+    def fake_stream(url, body):
+        calls.append(url)
+        if len(calls) == 1:
+            raise ConnectionError("reset before anything arrived")
+        yield Event(5, "turn.done", {"state": {"output": {"content": "recovered"}}})
+
+    monkeypatch.setattr(harness, "_stream", fake_stream)
+    monkeypatch.setattr(harness, "_request",
+                        lambda path, body=None, method=None: {"data": [{"id": "t-9"}]})
+
+    out = harness.run_turn("sess", "hello")
+    assert out.output == "recovered"
+    assert "t-9" in calls[1] and "after_sequence_number=0" in calls[1]
