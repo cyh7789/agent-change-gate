@@ -69,20 +69,23 @@ answer under the spec itself. `probe/fanout.py` re-runs the fingerprint check.
 ## What it says about a real change
 
 The candidate spec spells out the classification criteria the baseline leaves
-implicit, the kind of edit nobody would think to test. Three runs per scenario,
-16 scenarios, both specs:
+implicit, the kind of edit nobody would think to test. Five runs per scenario,
+16 scenarios, both specs. The whole report is
+[PR #14](https://github.com/cyh7789/agent-change-gate/pull/14), opened by the gate
+itself, and the video shows this run being made:
 
 ```
-Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky, 0 incomplete.
-Token cost 1.07x of baseline.
+Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky, 0 unproven, 0 incomplete.
+Token cost 1.09x of baseline.
 
-passed        baseline 42/48 (88%)    candidate 43/48 (90%)
-issue-332082  baseline 0/3            candidate 1/3            flaky
+passed        baseline 70/80 (88%)    candidate 74/80 (92%)
+tokens        baseline 293,692        candidate 321,155
+issue-332082  baseline 0/5            candidate 4/5            flaky
 ```
 
-Read it as a decision rather than a scoreboard: the change costs 7% more tokens
+Read it as a decision rather than a scoreboard: the change costs 9% more tokens
 on every run, and the only scenario that moved at all is one neither spec answers
-consistently. There is nothing here to pay 7% for.
+consistently. There is nothing here to pay 9% for.
 
 That one scenario is also the argument for running each spec more than once, and
 the repository has both readings side by side. [PR #8](https://github.com/cyh7789/agent-change-gate/pull/8)
@@ -93,14 +96,14 @@ Verdict: improvement. 1 fixed, 0 broken, 0 flaky. Token cost 0.94x of baseline.
 ```
 
 Same two specs, same 16 scenarios. One run per arm: an improvement that also saves
-6% tokens. Three runs per arm: a coin flip that costs 7% more. The single run got
+6% tokens. Five runs per arm: a coin flip that costs 9% more. The single run got
 both the direction and the sign of the cost wrong, and nothing about that report
 looks uncertain.
 
-## What three runs still cannot settle
+## Why the default is five, not three
 
-The same two specs, evaluated four times at three runs per arm, did not reach the same
-verdict:
+Three used to be the default. The same two specs, evaluated four times at three runs
+per arm, did not reach the same verdict:
 
 | run | baseline | candidate | `issue-332082` | verdict | tokens |
 |---|---|---|---|---|---|
@@ -118,8 +121,11 @@ is decided. The rule is "unstable in either arm", implemented as a partial pass:
 neither arm is partial, so nothing looks unstable and the change is credited with fixing it.
 
 Three runs is enough to catch the direction error a single run makes, and not enough to settle a
-scenario this noisy. Counting passes is the wrong instrument for that last step; comparing
-intervals is the right one, and the sandbox read already does it:
+scenario this noisy: the strongest split three repeats can produce, 0/3 against 3/3, is
+p = 0.10 under a two-tailed Fisher exact test, so no single scenario can ever clear p ≤ 0.05.
+That is why the default moved to five and why a scenario that moves without clearing the test
+is reported as `unproven` rather than fixed. Counting passes is still the wrong instrument for
+the last step; comparing intervals is the right one, and the sandbox read already does it:
 
 ```
 Wilson intervals overlap: True
@@ -171,7 +177,7 @@ Without `--repo` it evaluates and stops. With it, the run pauses at the approval
 gate; answering anything but `y` rejects the tool call and **nothing reaches
 GitHub**, verified with `gh api branches` and `gh pr list` after a rejection.
 
-Flags: `--repeat` (runs per scenario per arm, default 3, because one run cannot separate
+Flags: `--repeat` (runs per scenario per arm, default 5, because one run cannot separate
 noise from a regression), `--batch-size` (scenarios per subagent fan-out),
 `--no-analysis` (skip the sandbox statistical read).
 
@@ -192,7 +198,7 @@ unchanged, so the console adds a viewer, not a second code path.
 
 Each run mints a token and hands it to whoever loads the page; `/decide` refuses
 approvals without it. Binding to localhost only keeps other machines out, and the
-thing behind that endpoint is an irreversible action.
+thing behind that endpoint is a write to someone else's GitHub repository.
 
 ## The scenario set
 
@@ -212,7 +218,7 @@ gate/fanout.py      hands a batch of scenarios to subagents, maps answers back
 gate/runner.py      runs one arm over the frozen set
 gate/checks.py      deterministic pass/fail
 gate/report.py      comparison, flaky classification, verdict, markdown
-gate/analysis.py    Code Mode statistical read (sandbox)
+gate/analysis.py    statistical read, written and run in the agent's sandbox
 gate/writeback.py   GitHub MCP write-back behind the approval gate
 gate/state.py       the run's live state, and the approval the console holds
 gate/web.py         the console: progress, table, approve/reject
@@ -223,17 +229,19 @@ probe/              standalone scripts that verify the harness capabilities used
 
 ## Qodo code review evidence
 
-Qodo reviewed every pull request in this repository and raised **23 findings** across
-#1, #3, #5, #6, #9 and #10. All of them were read; the per-finding disposition, including
-the two judged not to be defects and why, is the comment on
-[#10](https://github.com/cyh7789/agent-change-gate/pull/10).
+Qodo raised **28 findings** across #1, #3, #5, #6, #8, #9, #10, #11 and #13 — every pull
+request it reviewed. All of them were read; the per-finding disposition, including the two
+judged not to be defects and why, is the comment on
+[#10](https://github.com/cyh7789/agent-change-gate/pull/10). From #14 on, Qodo's reviews are
+paused on this account, so #14, #15 and #16 carry its "reviews are paused" notice instead of
+a review.
 
 Three were security issues, and all three were real:
 
 | finding | what it meant |
 |---|---|
 | Credentials leak through argv | `ps` showed the Gemini API key to every user on the machine |
-| Unauthenticated approval endpoint | binding to localhost keeps other machines out, not other processes, and that endpoint releases irreversible actions |
+| Unauthenticated approval endpoint | binding to localhost keeps other machines out, not other processes, and that endpoint releases writes to GitHub |
 | Unescaped HTML injection | tool summaries, failure reasons and the sandbox's own analysis are model-written and went into `innerHTML` |
 
 The one worth reading is the approval deadlock. `ask()` published the pending call, released
