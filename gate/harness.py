@@ -192,7 +192,7 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
         if turn_id is None:
             # 連 turn.created 都沒收到，但 turn 已經在伺服器上跑了。丟掉它等於
             # 白燒那次呼叫，而這個 session 最新的那一筆就是它。
-            turn_id, after = _latest_turn(session_id), 0
+            turn_id, after = _find_turn(session_id, message), 0
             if turn_id is None:
                 break
         if after is None:
@@ -211,17 +211,22 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
     return out
 
 
-def _latest_turn(session_id: str) -> str | None:
-    """這個 session 最新的一個 turn。
+def _find_turn(session_id: str, message: str) -> str | None:
+    """在這個 session 上找出我們剛剛送出的那個 turn。
 
-    端點回的是最舊在前（實測三個 turn，建立順序就是列出順序），所以要最後一筆。
-    一頁最多 25 筆，而這裡的 session 一輩子只跑幾個 turn。
+    認的是 turn 自己記著的輸入內容。「拿最後一筆」在同一個 session 上有別的 turn
+    在跑的時候會接錯對象，續接一個不屬於自己的 turn。
+    端點最舊在前（實測三個 turn，建立順序就是列出順序），所以從尾端往回找。
     """
     try:
         turns = _request(f"/sessions/{session_id}/turns")["data"]
     except (HarnessError, KeyError):
         return None
-    return turns[-1]["id"] if turns else None
+    for turn in reversed(turns):
+        for item in turn.get("input") or []:
+            if item.get("content") == message:
+                return turn["id"]
+    return None
 
 
 def _subscribe_url(session_id: str, turn_id: str, after_seq: int) -> str:
