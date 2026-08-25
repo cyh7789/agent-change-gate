@@ -53,7 +53,7 @@ def _set(*ids):
 
 def _arm(label, outputs):
     """outputs: {scenario_id: [每次執行的輸出]}"""
-    runs = [ScenarioRun(sid, o, {"total_tokens": 10}) for sid, outs in outputs.items() for o in outs]
+    runs = [ScenarioRun(sid, o) for sid, outs in outputs.items() for o in outs]
     return ArmResult(label=label, agent_name=label, runs=runs)
 
 
