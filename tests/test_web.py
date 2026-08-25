@@ -20,6 +20,8 @@ import pytest
 from gate import web
 from gate.state import GateState
 
+CALL = {"tool": "create_branch", "server": "github", "input": {"branch": "change-gate/x"}}  # 核准閘公布的是結構化的呼叫，不是一行字
+
 TOKEN = "test-token"
 
 
@@ -57,13 +59,13 @@ def _decide(port: int, token: str | None) -> int:
 def test_approving_without_the_token_is_refused(console):
     state, port = console
     answered = threading.Event()
-    threading.Thread(target=lambda: (state.ask("create_branch"), answered.set()),
+    threading.Thread(target=lambda: (state.ask(CALL), answered.set()),
                      daemon=True).start()
     time.sleep(0.2)
 
     assert _decide(port, None) == 403
     assert _decide(port, "wrong-token") == 403
-    assert state.snapshot()["pending"] == "create_branch", "被拒絕的請求不能放行工具"
+    assert state.snapshot()["pending"] == CALL, "被拒絕的請求不能放行工具"
     assert not answered.is_set()
 
     assert _decide(port, TOKEN) == 200

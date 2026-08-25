@@ -35,14 +35,15 @@ def events(monkeypatch):
 def test_names_the_tool_and_its_arguments(events):
     events([{"turn_id": "t1", "event": EVENT}])
     got = harness.describe_call("s1", EVENT["id"], "call_792298")
-    assert got.startswith("github.create_branch")
-    assert "branch=change-gate/final" in got
-    assert "repo=agent-change-gate" in got
+    assert got["server"] == "github"
+    assert got["tool"] == "create_branch"
+    assert got["input"]["branch"] == "change-gate/final"
+    assert got["input"]["repo"] == "agent-change-gate"
 
 
 def test_events_may_come_unwrapped(events):
     events([EVENT])
-    assert harness.describe_call("s1", EVENT["id"], "call_792298").startswith("github.create_branch")
+    assert harness.describe_call("s1", EVENT["id"], "call_792298")["tool"] == "create_branch"
 
 
 def test_wrong_call_id_on_the_right_event_is_not_a_match(events):
@@ -59,7 +60,7 @@ def test_unparseable_arguments_fall_back_to_the_function_name(events):
     broken = {**EVENT, "tool_calls": [{**EVENT["tool_calls"][0],
                                        "function": {"name": "call_tool", "arguments": "{oops"}}]}
     events([{"event": broken}])
-    assert harness.describe_call("s1", EVENT["id"], "call_792298") == "call_tool"
+    assert harness.describe_call("s1", EVENT["id"], "call_792298")["tool"] == "call_tool"
 
 
 def test_harness_unreachable_is_not_an_error(monkeypatch):
@@ -77,5 +78,4 @@ def test_long_and_non_scalar_arguments_stay_off_the_card(events):
             "function": {"name": "call_tool", "arguments": args}}
     events([{"event": {**EVENT, "tool_calls": [call]}}])
     got = harness.describe_call("s1", EVENT["id"], "call_792298")
-    assert "path=agents/issue-triage.json" in got
-    assert "xxxx" not in got and "nested" not in got
+    assert got["input"] == {"path": "agents/issue-triage.json"}, "長字串與巢狀值不進卡片"

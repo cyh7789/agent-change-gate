@@ -37,7 +37,14 @@ class PendingWrite:
     session_id: str
     thread_id: str
     tool_call_id: str
-    tool_summary: str
+    call: dict          # {"tool", "server", "input"}；查不到工具名時 tool 是 None
+
+    @property
+    def tool_summary(self) -> str:
+        """一行版本，給不吃結構的呼叫端（CLI、log）。"""
+        head = ".".join(p for p in (self.call.get("server"), self.call.get("tool")) if p)
+        detail = ", ".join(f"{k}={v}" for k, v in (self.call.get("input") or {}).items())
+        return f"{head}  {detail}".strip() or self.tool_call_id
 
 
 def _pending(session_id: str, event: dict) -> PendingWrite:
@@ -47,7 +54,7 @@ def _pending(session_id: str, event: dict) -> PendingWrite:
                                       call.get("id", ""))
     return PendingWrite(session_id=session_id, thread_id=event.get("thread_id", "main"),
                         tool_call_id=call.get("id", ""),
-                        tool_summary=described or str(call)[:200])
+                        call=described or {"tool": None, "server": None, "input": {}})
 
 
 def propose(repo: str, branch: str, path: str, content: str, title: str, report_md: str) -> PendingWrite | None:
