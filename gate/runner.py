@@ -1,19 +1,20 @@
 """對一份 agent manifest 跑完整組情境，收集結果與 harness 原生 metrics。
 
-每個情境開自己的 session：情境之間不共享上下文，一個情境的對話不會污染下一個。
-情境彼此獨立且唯讀，所以平行跑；併發數留給呼叫端決定，預設保守。
+情境切成批，每批一個 session、一個 turn，批內由 harness 把每題交給自己的
+subagent 去做（`fanout.py`）。批之間序列跑：併發要嘛由 harness 負責，要嘛
+不做，不然這支程式又變回「用執行緒去打 HTTP 端點」。
 
 成本與 token 不自己插樁 —— harness 的 turn.done 事件原生帶 metrics，
 連 input 是花在 harness、skills、instructions、tool_definitions 還是 messages 都拆好了。
 """
 from __future__ import annotations
 
+import copy
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import harness
+from . import fanout, harness
 from .scenarios import Scenario, ScenarioSet
 
 
@@ -21,10 +22,7 @@ from .scenarios import Scenario, ScenarioSet
 class ScenarioRun:
     scenario_id: str
     output: str | None
-    metrics: dict = field(default_factory=dict)
     error: str | None = None
-    session_id: str | None = None
-    turn_id: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -42,6 +40,7 @@ class ArmResult:
     label: str
     agent_name: str
     runs: list[ScenarioRun] = field(default_factory=list)
+    batches: list[dict] = field(default_factory=list)
 
     def for_scenario(self, scenario_id: str) -> list[ScenarioRun]:
         return [r for r in self.runs if r.scenario_id == scenario_id]
@@ -59,27 +58,35 @@ class ArmResult:
 
     @property
     def total_tokens(self) -> int:
-        return sum(r.metrics.get("total_tokens", 0) for r in self.runs)
+        return sum(m.get("total_tokens", 0) for m in self.batches)
 
     @property
     def output_tokens(self) -> int:
-        return sum(r.metrics.get("total_output_tokens", 0) for r in self.runs)
+        return sum(m.get("total_output_tokens", 0) for m in self.batches)
 
 
-def _run_one(agent_name: str, sc: Scenario) -> ScenarioRun:
-    try:
-        sid = harness.create_session(agent_name)
-        res = harness.run_turn(sid, sc.prompt, stop_at_approval=True)
-        turn_id = next((e.data.get("turn_id") for e in res.events if e.type == "turn.created"), None)
-        if res.pending_approval is not None:
-            return ScenarioRun(sc.id, None, {}, "paused for approval during evaluation", sid, turn_id)
-        return ScenarioRun(sc.id, res.output, res.metrics, None, sid, turn_id)
-    except harness.HarnessError as e:
-        return ScenarioRun(sc.id, None, {}, str(e)[:200])
+def coordinator_manifest(manifest: dict) -> dict:
+    """把受測 spec 變成扇出協調者：instructions 原封不動，後面接扇出協定。
+
+    subagent 繼承同一份 instructions，所以量到的還是受測 spec 的行為；
+    協定只規定「怎麼把題目發下去」，不碰怎麼答。
+    """
+    m = copy.deepcopy(manifest)
+    m["instructions"] = (m.get("instructions") or "") + fanout.PROTOCOL
+    cfg = m.setdefault("config", {})
+    cfg.setdefault("dynamic_sub_agents", {})["enabled"] = True
+    return m
+
+
+def _batches(scenarios: list[Scenario], repeat: int, size: int):
+    jobs = [sc for sc in scenarios for _ in range(max(1, repeat))]
+    for i in range(0, len(jobs), size):
+        chunk = jobs[i:i + size]
+        yield [(n + 1, sc) for n, sc in enumerate(chunk)]
 
 
 def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
-            concurrency: int = 4, repeat: int = 1,
+            batch_size: int = 4, repeat: int = 1,
             on_result: Callable[[ScenarioRun], None] | None = None) -> ArmResult:
     """建一個一次性 agent，對整組情境跑一遍。
 
@@ -87,11 +94,18 @@ def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
     拿到的就不是這次要量的那個設定。
     """
     agent_name = f"{label}-{uuid.uuid4().hex[:8]}"
-    harness.create_agent(agent_name, manifest)
+    harness.create_agent(agent_name, coordinator_manifest(manifest))
     arm = ArmResult(label=label, agent_name=agent_name)
-    jobs = [sc for sc in scenarios.scenarios for _ in range(max(1, repeat))]
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        for run in pool.map(lambda sc: _run_one(agent_name, sc), jobs):
+    ordered = sorted(scenarios.scenarios, key=lambda s: s.id)
+    for items in _batches(ordered, repeat, max(1, batch_size)):
+        try:
+            handled, metrics = fanout.run_batch(agent_name, items)
+        except harness.HarnessError as e:
+            handled = [fanout.Handled(sc.id, None, str(e)[:200]) for _, sc in items]
+            metrics = {}
+        arm.batches.append(metrics)
+        for h in handled:
+            run = ScenarioRun(h.scenario_id, h.output, h.error)
             arm.runs.append(run)
             if on_result:
                 on_result(run)

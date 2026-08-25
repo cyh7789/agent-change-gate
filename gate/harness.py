@@ -27,11 +27,47 @@ class Event:
 
 
 @dataclass
+class ThreadResult:
+    """一個 subagent 的一生：收到什麼、回了什麼。"""
+    thread_id: str
+    input: str
+    output: str | None = None
+    status: str | None = None
+
+
+@dataclass
 class TurnResult:
     events: list[Event] = field(default_factory=list)
     output: str | None = None
     metrics: dict = field(default_factory=dict)
     pending_approval: dict | None = None
+
+    @property
+    def threads(self) -> list[ThreadResult]:
+        """把扇出的 subagent 逐一還原。
+
+        對映一定要走 thread_id：thread.done 的到達順序跟 thread.created 不同
+        （實測四題扇出，created 是 1234，done 是 2143），照順序配會把答案錯位。
+        """
+        seen: dict[str, ThreadResult] = {}
+        for ev in self.events:
+            if ev.type == "thread.created":
+                tid = ev.data.get("thread_id")
+                info = ev.data.get("agent_info") or {}
+                if tid:
+                    seen[tid] = ThreadResult(tid, info.get("input") or "")
+            elif ev.type == "thread.done":
+                tid = ev.data.get("thread_id")
+                if tid not in seen:
+                    continue
+                state = ev.data.get("state") or {}
+                seen[tid].status = state.get("status")
+                content = ((state.get("output") or {}).get("content"))
+                if isinstance(content, list):
+                    content = "".join(part.get("text", "") for part in content
+                                      if isinstance(part, dict))
+                seen[tid].output = content
+        return list(seen.values())
 
     @property
     def last_seq(self) -> int | None:
