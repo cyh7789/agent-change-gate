@@ -210,6 +210,29 @@ Scoring is deterministic string checking (`gate/checks.py`), never a model judgi
 a model: a grader that disagrees with itself between runs makes the comparison
 worthless.
 
+## What this has and has not been shown to do
+
+Everything measured here is one agent doing one job: classifying GitHub issues into
+two labels, checked by string equality. That is the whole evidence base, and it is
+worth being precise about which parts of the gate depend on it.
+
+Independent of the task: the fan-out to subagents, the incomplete/flaky/unproven
+accounting, the Fisher exact test, the sandbox read, the approval gate, the resume
+cursor, and the digest that refuses an edited scenario set. Those are harness and
+statistics, and a scenario is a prompt plus an expectation to them.
+
+Dependent on the task: `gate/checks.py` supports `equals_ignoring_case` and
+`contains`, which covers short classification answers and nothing else. An agent
+that writes a paragraph, calls a tool, or returns JSON needs a checker this
+repository does not have, and swapping in a model as the grader is the one thing
+that would undo the point — a grader that disagrees with itself between runs makes
+every number above meaningless. Adding a deterministic checker per output shape is
+the honest way forward, and none of them is written.
+
+So the claim is: a spec change gets measured before it ships, on any task whose
+output a deterministic check can score. Two labels and sixteen issues is where that
+has actually been demonstrated.
+
 ## Layout
 
 ```
