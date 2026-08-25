@@ -189,8 +189,14 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
         if out.finished:
             break
         turn_id, after = out.turn_id, out.last_seq
-        if turn_id is None or after is None:
-            break                     # 連 turn.created 都沒收到，沒有可續接的對象
+        if turn_id is None:
+            # 連 turn.created 都沒收到，但 turn 已經在伺服器上跑了。丟掉它等於
+            # 白燒那次呼叫，而這個 session 最新的那一筆就是它。
+            turn_id, after = _latest_turn(session_id), 0
+            if turn_id is None:
+                break
+        if after is None:
+            after = 0
         try:
             _consume_into(out, _stream(_subscribe_url(session_id, turn_id, after), None),
                           stop_at_approval)
@@ -203,6 +209,19 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
             if out.turn_id else
             "the turn stream dropped before turn.created, so there is nothing to resume")
     return out
+
+
+def _latest_turn(session_id: str) -> str | None:
+    """這個 session 最新的一個 turn。
+
+    端點回的是最舊在前（實測三個 turn，建立順序就是列出順序），所以要最後一筆。
+    一頁最多 25 筆，而這裡的 session 一輩子只跑幾個 turn。
+    """
+    try:
+        turns = _request(f"/sessions/{session_id}/turns")["data"]
+    except (HarnessError, KeyError):
+        return None
+    return turns[-1]["id"] if turns else None
 
 
 def _subscribe_url(session_id: str, turn_id: str, after_seq: int) -> str:

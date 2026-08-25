@@ -213,8 +213,10 @@ def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkey
         yield Event(5, "turn.done", {"state": {"output": {"content": "recovered"}}})
 
     monkeypatch.setattr(harness, "_stream", fake_stream)
+    # 實測過：這個端點最舊的排在前面，要的是最後一筆。
     monkeypatch.setattr(harness, "_request",
-                        lambda path, body=None, method=None: {"data": [{"id": "t-9"}]})
+                        lambda path, body=None, method=None: {
+                            "data": [{"id": "t-7"}, {"id": "t-8"}, {"id": "t-9"}]})
 
     out = harness.run_turn("sess", "hello")
     assert out.output == "recovered"
