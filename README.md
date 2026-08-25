@@ -58,21 +58,29 @@ implicit, the kind of edit nobody would think to test. Three runs per scenario,
 16 scenarios, both specs:
 
 ```
-Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky. Token cost 1.01x.
+Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky, 0 incomplete.
+Token cost 1.07x of baseline.
 
-passed        baseline 43/48 (90%)    candidate 42/48 (88%)
-issue-332082  baseline 1/3            candidate 0/3            flaky
+passed        baseline 42/48 (88%)    candidate 43/48 (90%)
+issue-332082  baseline 0/3            candidate 1/3            flaky
 ```
 
-That one scenario is the whole argument. Run each spec once and you get baseline
-pass, candidate fail, and a report saying the change broke it. Run three times and
-it is a scenario the model cannot answer consistently under either spec, and
-the change did nothing to it.
+Read it as a decision rather than a scoreboard: the change costs 7% more tokens
+on every run, and the only scenario that moved at all is one neither spec answers
+consistently. There is nothing here to pay 7% for.
 
-An earlier run of the same pair, before the fan-out moved to subagents, did surface
-a real difference: the candidate turned one bug report into a feature-request and
-cost 4% more tokens. Both readings came out of the gate rather than out of somebody's
-impression of the diff, which is the point.
+That one scenario is also the argument for running each spec more than once, and
+the repository has both readings side by side. [PR #8](https://github.com/cyh7789/agent-change-gate/pull/8)
+was opened by the gate itself from a one-run-per-arm evaluation, and its body says:
+
+```
+Verdict: improvement. 1 fixed, 0 broken, 0 flaky. Token cost 0.94x of baseline.
+```
+
+Same two specs, same 16 scenarios. One run per arm: an improvement that also saves
+6% tokens. Three runs per arm: a coin flip that costs 7% more. The single run got
+both the direction and the sign of the cost wrong, and nothing about that report
+looks uncertain.
 
 ## Setup
 
@@ -113,6 +121,21 @@ Flags: `--repeat` (runs per scenario per arm, default 3, because one run cannot 
 noise from a regression), `--batch-size` (scenarios per subagent fan-out),
 `--no-analysis` (skip the sandbox statistical read).
 
+### The console
+
+```bash
+python3 -m gate.web --spec agents/issue-triage.json \
+                    --candidate agents/issue-triage.candidate.json \
+                    --scenarios scenarios/issue-triage.json \
+                    --repo owner/name
+```
+
+Same run with a page at `127.0.0.1:8791`: progress, the per-scenario table as it
+fills in, the sandbox read, and the approval gate as a pair of buttons. Approving
+is the only thing on the page that reaches the outside world, and every tool call
+in the write-back comes back for its own decision. The evaluation itself is
+unchanged, so the console adds a viewer, not a second code path.
+
 ## The scenario set
 
 16 issues from `microsoft/vscode`, labelled by the maintainers, split 8 bug /
@@ -133,6 +156,8 @@ gate/checks.py      deterministic pass/fail
 gate/report.py      comparison, flaky classification, verdict, markdown
 gate/analysis.py    Code Mode statistical read (sandbox)
 gate/writeback.py   GitHub MCP write-back behind the approval gate
+gate/state.py       the run's live state, and the approval the console holds
+gate/web.py         the console: progress, table, approve/reject
 probe/              standalone scripts that verify the harness capabilities used here
 ```
 
