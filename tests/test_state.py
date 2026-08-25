@@ -68,3 +68,47 @@ def test_counting_runs_is_safe_from_several_threads():
     for t in threads:
         t.join()
     assert st.snapshot()["runs_done"] == 1600
+
+
+def _states(st):
+    return [w["state"] for w in st.writes()]
+
+
+def test_the_checklist_accepts_either_file_write_tool():
+    """提交那一步 agent 用過兩個不同的工具，兩個都要算。
+
+    實測：一次 create_or_update_file，下一次同樣的請求變成 push_files。只認一個
+    名字的話，人在畫面上會看到「還沒提交」，但它其實正等著他核准那一步。
+    """
+    for tool in ("create_or_update_file", "push_files"):
+        st = GateState()
+        st.update(decided=[{"tool": "create_branch", "allowed": True}],
+                  pending={"tool": tool, "server": "github", "input": {}})
+        assert _states(st) == ["done", "open", "todo"], tool
+
+
+def test_a_refused_write_does_not_look_like_one_that_never_came():
+    st = GateState()
+    st.update(decided=[{"tool": "create_branch", "allowed": False}])
+    assert _states(st) == ["refused", "todo", "todo"]
+
+
+def test_all_three_done_reads_as_done():
+    st = GateState()
+    st.update(decided=[{"tool": "create_branch", "allowed": True},
+                       {"tool": "push_files", "allowed": True},
+                       {"tool": "create_pull_request", "allowed": True}])
+    assert _states(st) == ["done", "done", "done"]
+
+
+def test_an_unknown_tool_does_not_tick_anything_off():
+    """核准閘上冒出沒見過的工具時，清單不能亂認一條。"""
+    st = GateState()
+    st.update(pending={"tool": "delete_file", "server": "github", "input": {}})
+    assert _states(st) == ["todo", "todo", "todo"]
+
+
+def test_the_snapshot_carries_the_checklist():
+    st = GateState()
+    st.update(pending={"tool": "create_branch", "server": "github", "input": {}})
+    assert st.snapshot()["writes"][0] == {"label": "create the branch", "state": "open"}
