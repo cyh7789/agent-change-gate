@@ -42,8 +42,12 @@ class PendingWrite:
 
 def _pending(session_id: str, event: dict) -> PendingWrite:
     call = (event.get("tool_calls") or [{}])[0]
+    # 閘門上要看得出在核准什麼。事件本身只有 call id，工具名稱得回頭查。
+    described = harness.describe_call(session_id, call.get("source_event_id", ""),
+                                      call.get("id", ""))
     return PendingWrite(session_id=session_id, thread_id=event.get("thread_id", "main"),
-                        tool_call_id=call.get("id", ""), tool_summary=str(call)[:200])
+                        tool_call_id=call.get("id", ""),
+                        tool_summary=described or str(call)[:200])
 
 
 def propose(repo: str, branch: str, path: str, content: str, title: str, report_md: str) -> PendingWrite | None:
