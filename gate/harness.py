@@ -229,6 +229,39 @@ def _find_turn(session_id: str, message: str) -> str | None:
     return None
 
 
+def describe_call(session_id: str, source_event_id: str, call_id: str) -> str | None:
+    """核准閘上那個呼叫在做什麼，例如 `github.create_branch  branch=change-gate/final`。
+
+    `tool.approval_required` 只帶 `{id, source_event_id}`，工具名稱不在裡面（實測）。
+    名稱在 `source_event_id` 指的那筆 `model.message` 的 `function.arguments` 裡，
+    要回頭去 session 的事件流拿。拿不到就回 None，讓呼叫端沿用原本的字串。
+    """
+    try:
+        events = _request(f"/sessions/{session_id}/events")["data"]
+    except (HarnessError, KeyError):
+        return None
+    for row in events:
+        ev = row.get("event", row)
+        if ev.get("id") != source_event_id:
+            continue
+        for call in ev.get("tool_calls") or []:
+            if call.get("id") != call_id:
+                continue
+            fn = call.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                return fn.get("name")
+            # MCP 的呼叫外面包一層 call_tool，真正的工具名在 arguments 裡。
+            tool = args.get("tool_name") or fn.get("name")
+            server = args.get("mcp_server")
+            head = f"{server}.{tool}" if server and tool else (tool or fn.get("name"))
+            detail = ", ".join(f"{k}={v}" for k, v in (args.get("input") or {}).items()
+                               if isinstance(v, (str, int, float)) and len(str(v)) <= 60)
+            return f"{head}  {detail}".strip() if detail else head
+    return None
+
+
 def _subscribe_url(session_id: str, turn_id: str, after_seq: int) -> str:
     return f"{BASE}/sessions/{session_id}/turns/{turn_id}/subscribe?after_sequence_number={after_seq}"
 
