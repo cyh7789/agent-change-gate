@@ -58,21 +58,20 @@ implicit, the kind of edit nobody would think to test. Three runs per scenario,
 16 scenarios, both specs:
 
 ```
-Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky. Token cost 1.01x.
+Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky, 0 incomplete.
+Token cost 1.07x of baseline.
 
-passed        baseline 43/48 (90%)    candidate 42/48 (88%)
-issue-332082  baseline 1/3            candidate 0/3            flaky
+passed        baseline 42/48 (88%)    candidate 43/48 (90%)
+issue-332082  baseline 0/3            candidate 1/3            flaky
 ```
 
-That one scenario is the whole argument. Run each spec once and you get baseline
-pass, candidate fail, and a report saying the change broke it. Run three times and
-it is a scenario the model cannot answer consistently under either spec, and
-the change did nothing to it.
+Read it as a decision rather than a scoreboard: the change costs 7% more tokens
+on every run, and the only scenario that moved at all is one neither spec answers
+consistently. There is nothing here to pay 7% for.
 
-An earlier run of the same pair, before the fan-out moved to subagents, did surface
-a real difference: the candidate turned one bug report into a feature-request and
-cost 4% more tokens. Both readings came out of the gate rather than out of somebody's
-impression of the diff, which is the point.
+That one scenario is also the argument for running each spec more than once. A
+single run per arm gives baseline fail, candidate pass, and a report calling the
+change an improvement. Three runs show a coin flip.
 
 ## Setup
 
