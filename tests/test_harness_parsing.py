@@ -213,11 +213,17 @@ def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkey
         yield Event(5, "turn.done", {"state": {"output": {"content": "recovered"}}})
 
     monkeypatch.setattr(harness, "_stream", fake_stream)
-    # 實測過：這個端點最舊的排在前面，要的是最後一筆。
-    monkeypatch.setattr(harness, "_request",
-                        lambda path, body=None, method=None: {
-                            "data": [{"id": "t-7"}, {"id": "t-8"}, {"id": "t-9"}]})
+    # 實測過：這個端點最舊的排在前面。認的是自己送出去的那段訊息，不是「最後一筆」,
+    # 因為同一個 session 上可能有別的 turn 在跑。
+    def listed(path, body=None, method=None):
+        return {"data": [
+            {"id": "t-7", "input": [{"type": "user.message", "content": "something else"}]},
+            {"id": "t-8", "input": [{"type": "user.message", "content": "hello"}]},
+            {"id": "t-9", "input": [{"type": "user.message", "content": "a concurrent turn"}]},
+        ]}
+
+    monkeypatch.setattr(harness, "_request", listed)
 
     out = harness.run_turn("sess", "hello")
     assert out.output == "recovered"
-    assert "t-9" in calls[1] and "after_sequence_number=0" in calls[1]
+    assert "t-8" in calls[1] and "after_sequence_number=0" in calls[1]
