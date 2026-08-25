@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         title=f"Agent spec change: {comparison.summary()['candidate_pass']}/{len(scenarios)} on frozen scenarios",
         report_md=md)
     if pending is None:
-        print("\nno approval was requested — the write-back agent did not reach a write tool")
+        print("\nno approval was requested: the write-back agent did not reach a write tool")
         return 1
 
     print(f"\n=== approval required ===\n{pending.tool_summary}")

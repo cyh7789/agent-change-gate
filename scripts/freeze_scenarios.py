@@ -3,7 +3,7 @@
 
 為什麼是別人的 repo：閘門要量的是「這個變更讓 agent 變好還是變壞」，
 量尺如果是自己寫的，寫的人就能不自覺地寫出對候選有利的題目。
-GitHub issue 有現成的 ground truth —— 維護者自己貼的 label —— 而且任何人
+GitHub issue 有現成的 ground truth，維護者自己貼的 label，而且任何人
 都能用同一個 API 抓同一批來重跑。
 
 只收有單一主類別 label 的 issue：一個 issue 同時是 bug 又是 ui 時，

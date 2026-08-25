@@ -4,7 +4,7 @@
 subagent 去做（`fanout.py`）。批之間序列跑：併發要嘛由 harness 負責，要嘛
 不做，不然這支程式又變回「用執行緒去打 HTTP 端點」。
 
-成本與 token 不自己插樁 —— harness 的 turn.done 事件原生帶 metrics，
+成本與 token 不自己插樁。harness 的 turn.done 事件原生帶 metrics，
 連 input 是花在 harness、skills、instructions、tool_definitions 還是 messages 都拆好了。
 """
 from __future__ import annotations

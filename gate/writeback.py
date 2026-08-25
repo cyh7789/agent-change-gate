@@ -2,7 +2,7 @@
 
 寫回這一步刻意交給 agent 帶 GitHub MCP 去做，而不是自己呼叫 REST API：
 harness 的核准閘是掛在工具呼叫上的，繞過工具就繞過了閘門。這裡要的正是
-那個暫停 —— 人看完比較表才決定要不要讓這個變更落地。
+那個暫停。人看完比較表才決定要不要讓這個變更落地。
 """
 from __future__ import annotations
 

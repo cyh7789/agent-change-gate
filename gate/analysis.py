@@ -1,6 +1,6 @@
 """通過次數矩陣的統計解讀：agent 寫程式，程式在 sandbox 裡跑。
 
-為什麼不是自己寫死一段統計：這一段要回答的問題會變 —— 今天問兩組的區間有沒有
+為什麼不是自己寫死一段統計：這一段要回答的問題會變。今天問兩組的區間有沒有
 重疊，下次可能問某一題是不是本來就不穩、或哪幾題撐起了整個差異。讓 agent 針對
 手上的矩陣現寫程式，比預先窮舉所有問法實際。
 
@@ -23,7 +23,7 @@ one scenario; `baseline` and `candidate` are how many of `n` repeats passed.
 Write Python and RUN it in your sandbox to compute, for each arm, the total passes,
 the pass rate, and the Wilson 95% score interval; then report whether the two
 intervals overlap, and list the scenarios where the two arms differ by more than one
-repeat. Use only the standard library. Do not compute anything in your head — report
+repeat. Use only the standard library. Do not compute anything in your head. Report
 what the code printed.
 
 Answer with a short markdown section: one paragraph of interpretation, then a table.

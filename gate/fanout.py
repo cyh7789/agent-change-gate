@@ -2,7 +2,7 @@
 
 差別不只是誰在排程。用 Python 的執行緒池平行呼叫，harness 只是被當成 HTTP 端點；
 交給 subagent，扇出、排程、上下文隔離都是 harness 在做，而每個 subagent 繼承的是
-受測 spec 的 instructions —— 量到的仍然是那份 spec 的行為。
+受測 spec 的 instructions，量到的仍然是那份 spec 的行為。
 
 對映走 thread_id 與 prompt 開頭的 marker：subagent 的完成順序跟建立順序不同，
 照順序配會把答案掛到錯的情境上。

@@ -1,7 +1,7 @@
 """TrueForge harness 的 HTTP 介面。
 
 只包住我們用得到的四件事：建 agent、開 session、跑 turn、續接被中斷的 turn。
-turn 端點回的是 SSE，不是 JSON —— 事件逐筆帶單調遞增的 sequence id，
+turn 端點回的是 SSE，不是 JSON。事件逐筆帶單調遞增的 sequence id，
 續接時把最後看到的 id 當 exclusive cursor 傳回去，harness 會從那之後重放。
 """
 from __future__ import annotations
@@ -160,7 +160,7 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
              reconnects: int = 3) -> TurnResult:
     """跑一個 turn，連線掉了就從斷點續接。
 
-    turn 在伺服器那端繼續跑，所以斷線不該讓整批重來 —— 一批情境要跑好幾分鐘，
+    turn 在伺服器那端繼續跑，所以斷線不該讓整批重來。一批情境要跑好幾分鐘，
     重跑的代價是整批的 token。續接用 sequence 當 exclusive cursor，事件不重複也不遺漏。
     """
     body = {"input": [{"type": "user.message", "content": message}]}
