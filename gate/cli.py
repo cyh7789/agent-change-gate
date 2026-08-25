@@ -66,14 +66,20 @@ def main(argv: list[str] | None = None) -> int:
         print("\nno approval was requested: the write-back agent did not reach a write tool")
         return 1
 
-    print(f"\n=== approval required ===\n{pending.tool_summary}")
-    decision = "y" if a.yes else input("land this change? [y/N] ").strip().lower()
-    if decision == "y":
-        print(writeback.approve(pending) or "(approved)")
-        return 0
-    print(writeback.reject(pending, "Rejected at the change gate after reviewing the comparison report.")
-          or "(rejected)")
-    return 2
+    asked = {"n": 0}
+
+    def ask(p) -> bool:
+        asked["n"] += 1
+        print(f"\n=== approval required ({asked['n']}) ===\n{p.tool_summary}")
+        if a.yes:
+            return True
+        return input("allow this call? [y/N] ").strip().lower() == "y"
+
+    landed, output = writeback.land(
+        pending, ask, "Rejected at the change gate after reviewing the comparison report.")
+    print(f"\n{output or ('(landed)' if landed else '(rejected)')}")
+    print(f"({asked['n']} tool call(s) went through the gate)")
+    return 0 if landed else 2
 
 
 if __name__ == "__main__":

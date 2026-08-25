@@ -1,13 +1,13 @@
 ## Change Gate report
 
-**Verdict: no change outside noise.** 0 fixed, 0 broken, 0 flaky (unstable in at least one arm, not attributed to the change). Token cost 0.98× of baseline.
+**Verdict: no change outside noise.** 0 fixed, 0 broken, 0 flaky (unstable in at least one arm, not attributed to the change), 0 incomplete (never ran to completion, not scored). Token cost 1.02× of baseline.
 
 Every scenario ran 1× per arm, because the model is not deterministic: a scenario that passes once and fails once tells you nothing about the change.
 
 | | baseline | candidate |
 |---|---|---|
-| passed | 14/16 (88%) | 14/16 (88%) |
-| total tokens | 65,995 | 64,766 |
+| passed | 15/16 (94%) | 15/16 (94%) |
+| total tokens | 64,918 | 66,361 |
 
 ### Per scenario
 
@@ -25,7 +25,7 @@ Every scenario ran 1× per arm, because the model is not deterministic: a scenar
 | `issue-331988` | 1/1 | 1/1 | same |  |
 | `issue-332051` | 1/1 | 1/1 | same |  |
 | `issue-332070` | 1/1 | 1/1 | same |  |
-| `issue-332082` | 0/1 | 0/1 | same | expected 'bug', got 'feature-request' |
+| `issue-332082` | 1/1 | 1/1 | same |  |
 | `issue-332115` | 1/1 | 1/1 | same |  |
 | `issue-332124` | 1/1 | 1/1 | same |  |
 | `issue-332167` | 1/1 | 1/1 | same |  |

@@ -106,3 +106,53 @@ def test_coordinator_does_not_mutate_the_spec_it_was_given():
     spec = {"model": {"name": "m"}, "instructions": "original"}
     runner.coordinator_manifest(spec)
     assert spec == {"model": {"name": "m"}, "instructions": "original"}
+
+
+def test_every_tool_call_in_a_write_back_goes_through_the_gate(monkeypatch):
+    """開分支、提交、開 PR 是三個工具呼叫，每一個都要各自核准。
+
+    只回答第一個的話，turn 會停在第二個上，GitHub 留下一個沒有 PR 的分支。
+    """
+    from gate import harness, writeback
+
+    def pending_event(call_id):
+        return {"thread_id": "main", "tool_calls": [{"id": call_id, "name": "create_branch"}]}
+
+    calls = []
+
+    def fake_decide(sid, thread, call_id, allow, reason=""):
+        calls.append((call_id, allow))
+        res = harness.TurnResult()
+        if len(calls) < 3:
+            res.pending_approval = pending_event(f"call_{len(calls) + 1}")
+        else:
+            res.output = "opened https://github.com/o/r/pull/9"
+        return res
+
+    monkeypatch.setattr(harness, "decide", fake_decide)
+    first = writeback.PendingWrite("sess", "main", "call_1", "create_branch")
+    landed, output = writeback.land(first, lambda p: True)
+
+    assert landed and "pull/9" in output
+    assert [c for c, _ in calls] == ["call_1", "call_2", "call_3"]
+
+
+def test_rejecting_a_later_call_stops_the_write_back(monkeypatch):
+    from gate import harness, writeback
+
+    calls = []
+
+    def fake_decide(sid, thread, call_id, allow, reason=""):
+        calls.append((call_id, allow))
+        res = harness.TurnResult()
+        if allow:
+            res.pending_approval = {"thread_id": "main", "tool_calls": [{"id": "call_2"}]}
+        else:
+            res.output = "stopped"
+        return res
+
+    monkeypatch.setattr(harness, "decide", fake_decide)
+    landed, _ = writeback.land(writeback.PendingWrite("sess", "main", "call_1", "x"),
+                               lambda p: p.tool_call_id == "call_1")
+    assert not landed
+    assert calls == [("call_1", True), ("call_2", False)]

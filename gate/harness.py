@@ -209,8 +209,14 @@ def resume_turn(session_id: str, turn_id: str, after_seq: int) -> TurnResult:
                     stop_at_approval=True)
 
 
-def decide(session_id: str, thread_id: str, tool_call_id: str, allow: bool, reason: str = "") -> TurnResult:
+def decide(session_id: str, thread_id: str, tool_call_id: str, allow: bool,
+           reason: str = "") -> TurnResult:
+    """回覆一次核准請求。
+
+    停在下一次核准請求上：一個寫回動作通常是好幾個工具呼叫（開分支、提交檔案、
+    開 PR），每一個都要各自的核准。讀到底的話會卡在等待，因為 turn 還沒結束。
+    """
     approval = {"status": "allow"} if allow else {"status": "deny", "reason": reason}
     body = {"input": [{"type": "user.tool_approval", "thread_id": thread_id,
                        "tool_call_id": tool_call_id, "approval": approval}]}
-    return _consume(_stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval=False)
+    return _consume(_stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval=True)
