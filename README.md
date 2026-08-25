@@ -51,6 +51,27 @@ implicit — the kind of edit nobody would think to test. It made one scenario w
 
 That is the whole point: the report existed before anyone had to have an opinion.
 
+## Setup
+
+Needs Python 3.11+, Node (for `npx`), the `gh` CLI logged in, and a Gemini API key.
+
+```bash
+# 1. run the harness (keeps its config in ~/Library/Application Support/trueforge)
+npx -y @truefoundry/trueforge          # serves http://localhost:8790
+
+# 2. point it at a model provider and the GitHub MCP server
+GEMINI_API_KEY=... ./scripts/setup_harness.sh
+#    -> model provider: ok / github mcp: ok / auth status: github=authenticated
+
+# 3. check the pieces this project relies on
+python3 -m pytest tests -q
+python3 probe/fanout.py && python3 probe/reconnect.py && python3 probe/codemode.py
+```
+
+Re-running step 2 on an already-configured harness prints `already exists`, which
+is fine. Another provider works too — edit the manifest in the script and the
+`model.name` in `agents/*.json`.
+
 ## Usage
 
 ```bash
@@ -93,6 +114,11 @@ probe/              standalone scripts that verify the harness capabilities used
 ```
 
 `python3 -m pytest tests -q`
+
+## AI assistance
+
+Written with Claude Code (rule 11). The design decisions, the measurements behind
+them, and the review of every line are the author's.
 
 ## License
 
