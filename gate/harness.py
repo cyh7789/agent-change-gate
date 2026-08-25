@@ -128,7 +128,13 @@ def _stream(url: str, body: dict | None) -> Iterator[Event]:
     )
     seq: int | None = None
     payload: dict | None = None
-    with urllib.request.urlopen(req, timeout=1800) as r:
+    try:
+        r = urllib.request.urlopen(req, timeout=1800)
+    except urllib.error.HTTPError as e:
+        # HTTPError 是 URLError 的子類。不在這裡轉成 HarnessError 的話，一個 400
+        # 會落進續接那條路，被當成斷線重試，最後安靜地變成「這批沒有輸出」。
+        raise HarnessError(f"{e.code} {url}: {e.read().decode()[:300]}") from e
+    with r:
         for raw in r:
             line = raw.decode(errors="replace").strip()
             if line.startswith("id:"):
