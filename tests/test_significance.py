@@ -79,3 +79,29 @@ def test_an_unproven_scenario_does_not_reach_the_verdict():
     assert c.summary()["fixed"] == 0
     assert c.summary()["unproven"] == 1
     assert c.verdict() == "no change outside noise"
+
+
+def test_an_unproven_row_keeps_its_p_value_in_the_reason():
+    """unproven 的理由是那個 p 值。被失敗原因蓋掉的話，這一列就沒有東西解釋它為什麼是 unproven。"""
+    row = _delta(["feature-request"] * 3, ["bug", "bug", "bug"])
+    assert row["delta"] == "unproven"
+    assert "p=" in row["why"]
+
+
+def test_an_unproven_break_keeps_its_p_value():
+    """候選全錯的時候（cp=0 < cn），舊碼會把 why 改寫成第一個失敗原因，p 值就不見了。
+
+    3/3 掉到 0/3 是三次重複能做到的最強退步，p 還是 0.1：有方向，沒有證據。
+    """
+    row = _delta(["bug"] * 3, ["feature-request"] * 3)
+    assert row["delta"] == "unproven"
+    assert "p=" in row["why"], f"unproven 的理由被蓋掉了：{row['why']!r}"
+
+
+def test_direction_does_not_depend_on_the_arms_having_equal_run_counts():
+    """兩組跑成的次數可以不同（有些 run 失敗被排除），方向要看通過率不是通過次數。"""
+    s = _set("a")
+    base = _arm("baseline", {"a": ["bug"] * 3})
+    cand = _arm("candidate", {"a": ["bug"] * 5})
+    row = next(r for r in Comparison(s, base, cand).rows() if r["id"] == "a")
+    assert row["delta"] == "same", "3/3 與 5/5 的通過率相同，不該被當成有變化"
