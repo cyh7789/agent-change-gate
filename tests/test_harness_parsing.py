@@ -177,3 +177,20 @@ def test_an_http_error_on_the_stream_is_not_mistaken_for_a_dropped_connection(mo
     with pytest.raises(harness.HarnessError) as e:
         harness.run_turn("sess", "hello")
     assert "400" in str(e.value) and "bad manifest" in str(e.value)
+
+
+def test_a_turn_that_never_finished_raises_instead_of_looking_empty(monkeypatch):
+    """重試用完還沒收到結局，就不能回一個「沒有輸出」的結果。
+
+    那會被記成「subagent 沒回答」，把一次連線問題寫成模型的錯。
+    """
+    from gate import harness
+
+    def always_drops(url, body):
+        yield Event(1, "turn.created", {"turn_id": "t-1"})
+        raise ConnectionError("reset")
+
+    monkeypatch.setattr(harness, "_stream", always_drops)
+    with pytest.raises(harness.HarnessError) as e:
+        harness.run_turn("sess", "hello", reconnects=2)
+    assert "t-1" in str(e.value)
