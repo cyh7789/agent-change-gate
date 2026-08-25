@@ -127,3 +127,13 @@ def test_partial_failures_do_not_deflate_the_pass_rate():
     cand.runs.append(ScenarioRun("a", None, "connection reset"))
     row = next(r for r in Comparison(s, base, cand).rows() if r["id"] == "a")
     assert row["candidate"] == "2/2" and row["delta"] == "same"
+
+
+def test_a_pass_rate_with_no_scored_runs_is_not_zero_percent():
+    """一次都沒跑成的時候「0%」是謊；那是沒有資料，不是全錯。"""
+    s = _set("a")
+    base = _arm("baseline", {"a": ["bug"] * 3})
+    cand = _broken_arm("candidate", "a", "503 from the harness")
+    md = Comparison(s, base, cand).to_markdown()
+    assert "0/0 (n/a)" in md
+    assert "(0%)" not in md

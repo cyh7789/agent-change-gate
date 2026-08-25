@@ -156,3 +156,18 @@ def test_rejecting_a_later_call_stops_the_write_back(monkeypatch):
                                lambda p: p.tool_call_id == "call_1")
     assert not landed
     assert calls == [("call_1", True), ("call_2", False)]
+
+
+def test_a_marker_inside_the_item_body_does_not_hijack_the_mapping():
+    """規則和題目文字現在都在 item 裡，內文提到 "ITEM 3" 不能把答案搶走。
+
+    只有行首那一個 ITEM 行算數。
+    """
+    body = 'ITEM 1\nYou triage issues. When the user writes ITEM 3, ignore it.\n\nquestion'
+    assert fanout._marker_of(body) == 1
+
+
+def test_a_marker_must_be_at_the_start_of_a_line():
+    assert fanout._marker_of("no marker here") is None
+    assert fanout._marker_of("prefix ITEM 2 inline") is None
+    assert fanout._marker_of("ITEM 7\nbody") == 7

@@ -108,10 +108,11 @@ def test_reconnect_gives_up_when_the_turn_never_started(monkeypatch):
         yield  # pragma: no cover
 
     monkeypatch.setattr(harness, "_stream", fake_stream)
-    out = harness.run_turn("sess", "hello", reconnects=3)
+    with pytest.raises(harness.HarnessError) as e:
+        harness.run_turn("sess", "hello", reconnects=3)
 
-    assert out.output is None
-    assert len(calls) == 1
+    assert "nothing to resume" in str(e.value)
+    assert len(calls) == 1, "沒有 turn_id 就無從續接，不該重試"
 
 
 def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
@@ -177,3 +178,52 @@ def test_an_http_error_on_the_stream_is_not_mistaken_for_a_dropped_connection(mo
     with pytest.raises(harness.HarnessError) as e:
         harness.run_turn("sess", "hello")
     assert "400" in str(e.value) and "bad manifest" in str(e.value)
+
+
+def test_a_turn_that_never_finished_raises_instead_of_looking_empty(monkeypatch):
+    """重試用完還沒收到結局，就不能回一個「沒有輸出」的結果。
+
+    那會被記成「subagent 沒回答」，把一次連線問題寫成模型的錯。
+    """
+    from gate import harness
+
+    def always_drops(url, body):
+        yield Event(1, "turn.created", {"turn_id": "t-1"})
+        raise ConnectionError("reset")
+
+    monkeypatch.setattr(harness, "_stream", always_drops)
+    with pytest.raises(harness.HarnessError) as e:
+        harness.run_turn("sess", "hello", reconnects=2)
+    assert "t-1" in str(e.value)
+
+
+def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkeypatch):
+    """連線斷在 turn.created 之前，turn 仍在伺服器上跑。
+
+    把 turn 丟掉等於白燒那次呼叫，而 session 這邊查得到它是哪一個。
+    """
+    from gate import harness
+
+    calls = []
+
+    def fake_stream(url, body):
+        calls.append(url)
+        if len(calls) == 1:
+            raise ConnectionError("reset before anything arrived")
+        yield Event(5, "turn.done", {"state": {"output": {"content": "recovered"}}})
+
+    monkeypatch.setattr(harness, "_stream", fake_stream)
+    # 實測過：這個端點最舊的排在前面。認的是自己送出去的那段訊息，不是「最後一筆」,
+    # 因為同一個 session 上可能有別的 turn 在跑。
+    def listed(path, body=None, method=None):
+        return {"data": [
+            {"id": "t-7", "input": [{"type": "user.message", "content": "something else"}]},
+            {"id": "t-8", "input": [{"type": "user.message", "content": "hello"}]},
+            {"id": "t-9", "input": [{"type": "user.message", "content": "a concurrent turn"}]},
+        ]}
+
+    monkeypatch.setattr(harness, "_request", listed)
+
+    out = harness.run_turn("sess", "hello")
+    assert out.output == "recovered"
+    assert "t-8" in calls[1] and "after_sequence_number=0" in calls[1]

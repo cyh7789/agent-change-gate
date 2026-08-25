@@ -15,8 +15,10 @@ import uuid
 
 from . import harness
 
-ASK = """Here is a pass-count matrix from an A/B evaluation of an agent spec. Each row is
-one scenario; `baseline` and `candidate` are how many of `n` repeats passed.
+ASK = """Here is a pass-count matrix from an A/B evaluation of an agent spec. Each row is one
+scenario; `baseline` passed out of `baseline_n` scored runs and `candidate` passed out
+of `candidate_n`. The two counts can differ when runs failed to complete, and a
+scenario with zero scored runs in an arm has no rate at all.
 
 {payload}
 
@@ -31,8 +33,10 @@ No headings above level 4, no preamble."""
 
 
 def payload(rows: list[dict]) -> str:
-    return json.dumps([{"id": r["id"], "baseline": r["baseline_pass"],
-                        "candidate": r["candidate_pass"], "n": r["baseline_n"]}
+    """每組帶自己的次數：某一組有幾次沒跑成的時候，共用一個 n 會讓 sandbox 算錯。"""
+    return json.dumps([{"id": r["id"],
+                        "baseline": r["baseline_pass"], "baseline_n": r["baseline_n"],
+                        "candidate": r["candidate_pass"], "candidate_n": r["candidate_n"]}
                        for r in rows], indent=1)
 
 
@@ -49,11 +53,13 @@ def interpret(rows: list[dict], model: str = "google-gemini/gemini-3-6-flash") -
         })
         sid = harness.create_session(name)
         res = harness.run_turn(sid, ASK.format(payload=payload(rows)), stop_at_approval=False)
-    except harness.HarnessError:
+    except Exception:
+        # 評測已經跑了幾分鐘。附加的解讀壞掉不該把那些結果一起丟掉。
         return None
     if not res.output:
         return None
-    ran = any(e.type == "sandbox.created" for e in res.events)
-    if not ran:
-        return None
+    started = any(e.type == "sandbox.created" for e in res.events)
+    executed = any(e.type == "tool.response" for e in res.events)
+    if not (started and executed):
+        return None          # 只有對話沒有工具回應，代表數字是講出來的，不是跑出來的
     return res.output.strip()

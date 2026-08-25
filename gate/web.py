@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import http.server
 import json
+import secrets
 import socketserver
 import threading
 import webbrowser
@@ -60,7 +62,12 @@ PAGE = """<!doctype html>
 <div id="table"></div>
 <div id="analysis"></div>
 <script>
+const TOKEN = "__TOKEN__";
 const $ = id => document.getElementById(id);
+// 這一頁顯示的東西有一部分是 agent 寫的（工具摘要、失敗原因、sandbox 的分析）。
+// 直接塞進 innerHTML 等於讓被評測的 agent 決定這一頁執行什麼。
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cls = d => ({same:'same',flaky:'flaky',broken:'broken',fixed:'fixed',incomplete:'incomplete'}[d]||'');
 async function tick() {
   const s = await (await fetch('/state')).json();
@@ -77,21 +84,22 @@ async function tick() {
     ['baseline tok', (s.baseline_tokens||0).toLocaleString()],
     ['candidate tok', (s.candidate_tokens||0).toLocaleString()],
     ['gate stops', s.approvals],
-  ].map(([k,v]) => `<div class="card"><b>${v}</b><span>${k}</span></div>`).join('');
+  ].map(([k,v]) => `<div class="card"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
   $('gate').innerHTML = s.pending
-    ? `<div class="gate"><b>Approval required</b><code>${s.pending}</code>
+    ? `<div class="gate"><b>Approval required</b><code>${esc(s.pending)}</code>
        <button class="allow" onclick="decide(true)">Approve</button>
        <button class="deny" onclick="decide(false)">Reject</button></div>`
     : (s.result ? `<div class="gate">${s.result.replace(/(https?:\\/\\/\\S+)/,'<a href="$1" target="_blank">$1</a>')}</div>` : '');
   $('verdict').textContent = s.verdict ? 'Verdict: ' + s.verdict : '';
   $('table').innerHTML = (s.rows||[]).length ? `<table><tr><th>scenario</th><th>baseline</th>
     <th>candidate</th><th>change</th><th>why</th></tr>` + s.rows.map(r =>
-    `<tr><td>${r.id}</td><td>${r.baseline}</td><td>${r.candidate}</td>
-     <td class="${cls(r.delta)}">${r.delta}</td><td>${(r.why||'').slice(0,70)}</td></tr>`).join('') + '</table>' : '';
-  $('analysis').innerHTML = s.analysis ? '<pre>' + s.analysis + '</pre>' : '';
+    `<tr><td>${esc(r.id)}</td><td>${esc(r.baseline)}</td><td>${esc(r.candidate)}</td>
+     <td class="${cls(r.delta)}">${esc(r.delta)}</td><td>${esc((r.why||'').slice(0,70))}</td></tr>`).join('') + '</table>' : '';
+  $('analysis').innerHTML = s.analysis ? '<pre>' + esc(s.analysis) + '</pre>' : '';
 }
 async function decide(allow) {
-  await fetch('/decide', {method:'POST', body: JSON.stringify({allow})});
+  await fetch('/decide', {method:'POST', headers:{'X-Gate-Token': TOKEN},
+                          body: JSON.stringify({allow})});
   tick();
 }
 tick(); setInterval(tick, 1000);
@@ -139,7 +147,14 @@ def run_gate(a, state: GateState) -> None:
         state.update(phase="failed", error=f"{type(e).__name__}: {e}")
 
 
-def serve(state: GateState, port: int) -> None:
+def serve(state: GateState, port: int, token: str) -> None:
+    """核准端點要帶 token。
+
+    綁 127.0.0.1 只擋掉別台機器；這台機器上跑的任何東西都能 POST /decide，
+    而那個端點放行的是不可逆的動作。token 只發給拿得到頁面的人。
+    """
+    page = PAGE.replace("__TOKEN__", token).encode()
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -155,9 +170,12 @@ def serve(state: GateState, port: int) -> None:
             if self.path == "/state":
                 self._send(json.dumps(state.snapshot()).encode(), "application/json")
             else:
-                self._send(PAGE.encode(), "text/html; charset=utf-8")
+                self._send(page, "text/html; charset=utf-8")
 
         def do_POST(self):
+            if not hmac.compare_digest(self.headers.get("X-Gate-Token", ""), token):
+                self.send_error(403, "approval requires the console token")
+                return
             length = int(self.headers.get("Content-Length", 0))
             allow = bool(json.loads(self.rfile.read(length) or b"{}").get("allow"))
             state.decide(allow)
@@ -183,12 +201,13 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     state = GateState()
+    token = secrets.token_urlsafe(16)
     threading.Thread(target=run_gate, args=(a, state), daemon=True).start()
     url = f"http://127.0.0.1:{a.port}/"
     print(f"gate console: {url}")
     if not a.no_open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-    serve(state, a.port)
+    serve(state, a.port, token)
     return 0
 
 

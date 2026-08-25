@@ -110,8 +110,9 @@ class Comparison:
     def to_markdown(self, analysis: str | None = None) -> str:
         s, rows = self.summary(), self.rows()
         ratio = f"{s['token_ratio']:.2f}×" if s["token_ratio"] else "n/a"
-        br = s["baseline_pass"] / s["baseline_total"] if s["baseline_total"] else 0
-        cr = s["candidate_pass"] / s["candidate_total"] if s["candidate_total"] else 0
+        # 分母是 0 代表沒有資料，不是全錯。印成 0% 會讓一次故障讀起來像全軍覆沒。
+        rate = lambda p, t: f"({p / t:.0%})" if t else "(n/a)"
+        br, cr = rate(s["baseline_pass"], s["baseline_total"]), rate(s["candidate_pass"], s["candidate_total"])
         lines = [
             "## Change Gate report",
             "",
@@ -125,8 +126,8 @@ class Comparison:
             "",
             "| | baseline | candidate |",
             "|---|---|---|",
-            f"| passed | {s['baseline_pass']}/{s['baseline_total']} ({br:.0%}) | "
-            f"{s['candidate_pass']}/{s['candidate_total']} ({cr:.0%}) |",
+            f"| passed | {s['baseline_pass']}/{s['baseline_total']} {br} | "
+            f"{s['candidate_pass']}/{s['candidate_total']} {cr} |",
             f"| total tokens | {s['baseline_tokens']:,} | {s['candidate_tokens']:,} |",
             "",
             "### Per scenario",
