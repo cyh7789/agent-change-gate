@@ -116,21 +116,30 @@ def create_session(agent_name: str) -> str:
 
 
 def _stream(url: str, body: dict | None) -> Iterator[Event]:
+    """一個 SSE 事件在空行處結束，`id:` 跟它前面的 `data:` 屬於同一個事件。
+
+    harness 送的順序是 data 先、id 後，所以事件不能一看到 data 就吐出去：
+    那樣每個事件都會配到前一個的編號，續接游標少一格，重放一個已經收過的事件。
+    """
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Content-Type": "application/json"},
     )
-    seq = None
+    seq: int | None = None
+    payload: dict | None = None
     with urllib.request.urlopen(req, timeout=1800) as r:
         for raw in r:
             line = raw.decode(errors="replace").strip()
-            if line.startswith("id: "):
-                seq = int(line[4:])
-                continue
-            if not line.startswith("data: "):
-                continue
-            payload = json.loads(line[6:])
+            if line.startswith("id:"):
+                seq = int(line[3:].strip())
+            elif line.startswith("data:"):
+                payload = json.loads(line[5:].strip())
+            elif line == "":
+                if payload is not None:
+                    yield Event(seq=seq, type=payload.get("type", ""), data=payload)
+                seq, payload = None, None
+        if payload is not None:                     # 串流沒有以空行收尾
             yield Event(seq=seq, type=payload.get("type", ""), data=payload)
 
 
