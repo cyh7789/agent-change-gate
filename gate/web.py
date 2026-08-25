@@ -255,16 +255,11 @@ function gate(s) {
 }
 
 // 「還不能過」拆成具名的三條，而不是一顆灰掉的按鈕
-const WRITES = [['create_branch', 'create the branch'],
-                ['create_or_update_file', 'commit the new spec'],
-                ['create_pull_request', 'open the pull request']];
+// 哪一步到哪裡由伺服器算（GateState.writes），這一頁只負責畫
+const MARK = {done:'ok', refused:'no', open:'open', todo:'todo'};
 function checklist(s) {
-  const done = s.decided || [];
-  const items = WRITES.map(([tool, label]) => {
-    const d = done.find(x => x.tool === tool);
-    const k = d ? (d.allowed ? 'ok' : 'no') : (s.pending && s.pending.tool === tool ? 'open' : 'todo');
-    return `<li class="${k}">${esc(label)}</li>`;
-  }).join('');
+  const items = (s.writes || []).map(w =>
+    `<li class="${MARK[w.state] || 'todo'}">${esc(w.label)}</li>`).join('');
   return `<ul class="checklist">${items}</ul>`;
 }
 
@@ -296,7 +291,7 @@ function rail(s) {
     ['verdict', 'Verdict', s.verdict ? '' : 'pending'],
     ['scenarios', 'Scenarios', rows.length ? `${moved}/${rows.length} moved`
                                            : `${s.runs_done}/${s.runs_total || '?'} runs`],
-    ['approvals', 'Approvals', s.repo ? `${(s.decided||[]).length}/${WRITES.length} writes` : 'n/a'],
+    ['approvals', 'Approvals', s.repo ? `${(s.writes||[]).filter(w => w.state === 'done').length}/${(s.writes||[]).length} writes` : 'n/a'],
     ['sandbox', 'Sandbox read', s.analysis ? 'ready' : '–'],
   ];
   return links.map(([id, label, note]) =>

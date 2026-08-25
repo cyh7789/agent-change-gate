@@ -62,7 +62,9 @@ class GateState:
 
     def snapshot(self) -> dict:
         with self._cond:
-            return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+            snap = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+        snap["writes"] = self.writes()
+        return snap
 
     # --- 核准：評測執行緒等在這裡，介面按鈕解開它 ---
 
@@ -84,6 +86,33 @@ class GateState:
             self.pending = None
             self.phase = "landing" if allow else "rejected"
             return allow
+
+    # 落地要走的三個寫入。提交那一步有兩個工具做得到，agent 兩個都用過
+    # （實測：一次 create_or_update_file、一次 push_files），只認一個名字會讓
+    # 那一條在介面上永遠顯示成還沒做。
+    WRITES = (("create the branch", ("create_branch",)),
+              ("commit the new spec", ("create_or_update_file", "push_files")),
+              ("open the pull request", ("create_pull_request",)))
+
+    def writes(self) -> list[dict]:
+        """三個寫入各自到哪一步了，給介面畫成逐項清單。
+
+        狀態是 done / refused / open / todo：拒絕過的要留著，不能跟還沒到的長一樣，
+        看的人得分得出「我按了拒絕」和「還沒輪到」。
+        """
+        with self._cond:
+            decided, pending = list(self.decided), self.pending
+        out = []
+        for label, tools in self.WRITES:
+            answered = next((d for d in decided if d.get("tool") in tools), None)
+            if answered:
+                state = "done" if answered.get("allowed") else "refused"
+            elif pending and pending.get("tool") in tools:
+                state = "open"
+            else:
+                state = "todo"
+            out.append({"label": label, "state": state})
+        return out
 
     def decide(self, allow: bool) -> None:
         with self._cond:
