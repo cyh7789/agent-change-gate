@@ -113,6 +113,21 @@ Flags: `--repeat` (runs per scenario per arm, default 3, because one run cannot 
 noise from a regression), `--batch-size` (scenarios per subagent fan-out),
 `--no-analysis` (skip the sandbox statistical read).
 
+### The console
+
+```bash
+python3 -m gate.web --spec agents/issue-triage.json \
+                    --candidate agents/issue-triage.candidate.json \
+                    --scenarios scenarios/issue-triage.json \
+                    --repo owner/name
+```
+
+Same run with a page at `127.0.0.1:8791`: progress, the per-scenario table as it
+fills in, the sandbox read, and the approval gate as a pair of buttons. Approving
+is the only thing on the page that reaches the outside world, and every tool call
+in the write-back comes back for its own decision. The evaluation itself is
+unchanged, so the console adds a viewer, not a second code path.
+
 ## The scenario set
 
 16 issues from `microsoft/vscode`, labelled by the maintainers, split 8 bug /
@@ -133,6 +148,8 @@ gate/checks.py      deterministic pass/fail
 gate/report.py      comparison, flaky classification, verdict, markdown
 gate/analysis.py    Code Mode statistical read (sandbox)
 gate/writeback.py   GitHub MCP write-back behind the approval gate
+gate/state.py       the run's live state, and the approval the console holds
+gate/web.py         the console: progress, table, approve/reject
 probe/              standalone scripts that verify the harness capabilities used here
 ```
 
