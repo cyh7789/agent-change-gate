@@ -81,7 +81,9 @@ class Comparison:
                              "candidate_pass": cp, "candidate_n": cn})
                 continue
             flaky = (0 < bp < bn) or (0 < cp < cn)
-            moved = (cp > bp and bp < bn) or (bp > cp and cp < cn)
+            # 方向看通過率不看通過次數：兩組跑成的次數可以不同（失敗的 run 被排除），
+            # 3/3 對 5/5 是同一個結果，不是「多過了兩次」。
+            moved = (bp / bn) != (cp / cn)
             p = fisher_exact_p(bp, bn, cp, cn)
             if flaky:
                 delta = "flaky"
@@ -91,19 +93,20 @@ class Comparison:
                 # 有方向，沒有證據。四次執行裡有一次就是這樣被記成 improvement 的：
                 # 一組 0/3、另一組 3/3，兩邊都不部分通過，flaky 看不見，而 p = 0.1。
                 delta = "unproven"
-            elif cp > bp:
+            elif cp / cn > bp / bn:
                 delta = "fixed"
             else:
                 delta = "broken"
             why = ""
-            if delta == "unproven":
-                why = f"direction only, p={p:.2f} at {bn} and {cn} runs"
             if cp < cn:
                 for r in self._scored(self.candidate, s.id):
                     ok, reason = check(r.output, s.expect)
                     if not ok:
                         why = reason
                         break
+            if delta == "unproven":
+                # 這一列存在的理由就是那個 p 值，不能被失敗原因蓋掉。
+                why = f"direction only, p={p:.2f} at {bn} and {cn} runs"
             rows.append({"id": s.id, "baseline": f"{bp}/{bn}", "candidate": f"{cp}/{cn}",
                          "delta": delta, "why": why,
                          "baseline_pass": bp, "baseline_n": bn,
