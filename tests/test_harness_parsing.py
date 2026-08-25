@@ -6,6 +6,8 @@
   2. 續接用的 sequence 要取最後一個帶 id 的事件，不是最後一個事件
   3. 遇到核准要求時必須停下並交出 tool_call_id，不能吃掉繼續跑
 """
+from __future__ import annotations
+
 import io
 import sys
 from pathlib import Path

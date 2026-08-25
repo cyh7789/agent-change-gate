@@ -6,6 +6,8 @@
 
 而同一次執行的 sandbox 統計說 Wilson 區間重疊、95% 下不顯著。
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

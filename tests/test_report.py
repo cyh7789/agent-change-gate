@@ -4,6 +4,8 @@
 三次是 15/16、14/16、14/16，其中 issue-332082 給出 pass/fail/fail。單看一次
 就會把那一題報成變更造成的退步。
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

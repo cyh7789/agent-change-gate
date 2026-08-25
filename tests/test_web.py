@@ -3,6 +3,8 @@
 綁在 127.0.0.1 只擋別台機器。這台機器上任何程式都能 POST /decide，而那個端點
 放行的是不可逆的動作，所以要帶只有拿得到頁面的人才有的 token。
 """
+from __future__ import annotations
+
 import socket
 import sys
 import threading

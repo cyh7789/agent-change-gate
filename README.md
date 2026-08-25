@@ -7,6 +7,19 @@ noise, and then stops so a human decides whether the change lands on GitHub.
 
 Built on the TrueForge harness for the WeMakeDevs TrueForge Hackathon.
 
+```
+real tools through MCP   →  the write-back is GitHub MCP, never the REST API
+code run in a sandbox    →  the agent writes and executes the statistical read
+work handed to subagents →  one subagent per scenario, no concurrency in this code
+a human before anything  →  branch, commit and pull request each stop for a decision
+  irreversible
+a session that survives  →  a dropped turn resumes from its last sequence id
+  a reconnect
+```
+
+Every one of those is re-runnable from `probe/`, against a live harness, in under a
+minute. None of it is a claim you have to take from the video.
+
 ## The problem it solves
 
 Someone rewrites a line of an agent's instructions and ships it. Nothing is red,
@@ -18,7 +31,8 @@ The obvious answer, run both versions and compare, breaks on first contact:
 - **The model is not deterministic.** Running the same spec against the same 16
   scenarios three times gave 15/16, 14/16, 14/16, and one scenario (`issue-332082`)
   answered pass, fail, fail. Compare single runs and you will report noise as a
-  regression.
+  regression. Compare three and you can still get it wrong, which is why the default
+  is five; the measurements are below.
 - **The measuring stick drifts.** If the scenario set can be edited between runs,
   the comparison means nothing. Here it is digest-frozen: the digest is recomputed
   from the contents on every run, and a mismatch refuses the run.
@@ -131,7 +145,8 @@ GEMINI_API_KEY=... ./scripts/setup_harness.sh
 #    -> model provider: ok / github mcp: ok / auth status: github=authenticated
 
 # 3. check the pieces this project relies on
-python3 -m pytest tests -q
+#    the gate itself is standard library only; pytest is the one test-time dependency
+uvx --python 3.11 --from pytest pytest -q tests   # or: pip install pytest && python3 -m pytest -q tests
 python3 probe/fanout.py && python3 probe/reconnect.py && python3 probe/codemode.py
 ```
 
@@ -201,7 +216,7 @@ gate/web.py         the console: progress, table, approve/reject
 probe/              standalone scripts that verify the harness capabilities used here
 ```
 
-`python3 -m pytest tests -q`
+`uvx --python 3.11 --from pytest pytest -q tests`
 
 ## Qodo code review evidence
 

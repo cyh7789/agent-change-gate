@@ -2,6 +2,8 @@
 
 這一段是附加的：它算錯或跑不起來，都不該影響判決，也不該把整個 gate 弄倒。
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
