@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Iterator
 
-BASE = "http://localhost:8790/api/v1"
+BASE = os.environ.get("TRUEFORGE_BASE", "http://localhost:8790/api/v1")
 
 
 class HarnessError(RuntimeError):

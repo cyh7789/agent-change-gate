@@ -84,7 +84,7 @@ python3 probe/fanout.py && python3 probe/reconnect.py && python3 probe/codemode.
 ```
 
 Re-running step 2 on an already-configured harness prints `already exists`, which
-is fine. Another provider works too: edit the manifest in the script and the
+is fine. Set `TRUEFORGE_BASE` if the harness is not on `localhost:8790`. Another provider works too: edit the manifest in the script and the
 `model.name` in `agents/*.json`.
 
 ## Usage
