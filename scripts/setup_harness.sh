@@ -10,8 +10,9 @@ BASE="${TRUEFORGE_BASE:-http://localhost:8790/api/v1}"
 : "${GEMINI_API_KEY:?set GEMINI_API_KEY (or edit this script for another provider)}"
 GH_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}"
 
-post() {   # post <path> <json>
-  curl -sS -X POST "$BASE$1" -H 'Content-Type: application/json' -d "$2" \
+# 內容走 stdin，不走命令列：`ps` 對機器上的任何使用者都看得見 argv，而這裡面有 API key。
+post() {   # post <path> <json-on-stdin>
+  printf '%s' "$2" | curl -sS -X POST "$BASE$1" -H 'Content-Type: application/json' --data-binary @- \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error",{}).get("message") or "ok")'
 }
 
