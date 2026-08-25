@@ -13,6 +13,10 @@ from dataclasses import dataclass, field
 @dataclass
 class GateState:
     phase: str = "starting"
+    repo: str = ""      # 介面要說出這個決定會碰到哪個 repo
+    branch: str = ""
+    spec: str = ""      # 正在比的是哪兩份 spec，評測跑的時候畫面上只剩這個
+    candidate: str = ""
     scenarios: int = 0
     repeats: int = 1
     runs_done: int = 0
@@ -21,11 +25,15 @@ class GateState:
     baseline_tokens: int = 0
     candidate_tokens: int = 0
     rows: list = field(default_factory=list)
+    # 評測期間的逐題進度：{scenario_id: {arm: [ok, ...]}}
+    live: dict = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
     verdict: str = ""
     analysis: str | None = None
-    pending: str | None = None
+    pending: dict | None = None
     approvals: int = 0
+    # 已經決定過的寫入，照順序：介面把三次寫入畫成一份逐項清單
+    decided: list = field(default_factory=list)
     result: str | None = None
     error: str | None = None
 
@@ -37,9 +45,16 @@ class GateState:
             for k, v in fields.items():
                 setattr(self, k, v)
 
-    def count_run(self) -> None:
+    def count_run(self, arm: str = "", scenario_id: str = "", ok: bool = False) -> None:
+        """記下這一次跑完的是哪一題、過了沒。
+
+        評測要跑十幾分鐘，介面上只有一條進度列的話，那段時間畫面等於空的。
+        逐題累積下來才看得出扇出是真的在動：十六題各自獨立長出結果。
+        """
         with self._cond:
             self.runs_done += 1
+            if scenario_id:
+                self.live.setdefault(scenario_id, {}).setdefault(arm, []).append(ok)
 
     def snapshot(self) -> dict:
         with self._cond:
@@ -47,7 +62,7 @@ class GateState:
 
     # --- 核准：評測執行緒等在這裡，介面按鈕解開它 ---
 
-    def ask(self, tool_summary: str) -> bool:
+    def ask(self, call: dict) -> bool:
         """擋住呼叫端，直到有人按下核准或拒絕。
 
         公布 pending、丟掉上一次的答案、開始等待，全在同一把鎖底下：決定要進來就得
@@ -55,12 +70,13 @@ class GateState:
         """
         with self._cond:
             self._answer = None
-            self.pending = tool_summary
+            self.pending = call
             self.phase = "awaiting-approval"
             self.approvals += 1
             while self._answer is None:
                 self._cond.wait()
             allow = self._answer
+            self.decided.append({**call, "allowed": allow})
             self.pending = None
             self.phase = "landing" if allow else "rejected"
             return allow

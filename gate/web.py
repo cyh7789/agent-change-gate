@@ -27,75 +27,254 @@ from .state import GateState
 PAGE = """<!doctype html>
 <meta charset="utf-8"><title>Agent Change Gate</title>
 <style>
- :root { color-scheme: dark; }
- body { font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-        background:#11131a; color:#e6e8ee; margin:0; padding:28px 32px; }
- h1 { font-size:20px; margin:0 0 4px; letter-spacing:.02em; }
- .sub { color:#8b93a7; margin-bottom:22px; }
- .bar { height:8px; background:#232735; border-radius:4px; overflow:hidden; margin:10px 0 6px; }
- .bar > div { height:100%; background:#4f8cff; width:0; transition:width .3s; }
- .cards { display:flex; gap:14px; flex-wrap:wrap; margin:18px 0 6px; }
- .card { background:#171a24; border:1px solid #232735; border-radius:8px; padding:12px 16px; min-width:120px; }
- .card b { display:block; font-size:22px; margin-bottom:2px; }
- .card span { color:#8b93a7; font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
- table { border-collapse:collapse; width:100%; margin-top:14px; font-size:13px; }
- th, td { text-align:left; padding:5px 10px; border-bottom:1px solid #1e2230; }
- th { color:#8b93a7; font-weight:normal; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
- .same { color:#5b6379; } .flaky { color:#e0b341; } .broken { color:#ff6b6b; }
- .fixed { color:#4ade80; } .incomplete { color:#a78bfa; }
- .gate { background:#1d1608; border:1px solid #5c451a; border-radius:8px; padding:18px 20px; margin:20px 0; }
- .gate code { display:block; color:#e0b341; margin:8px 0 14px; word-break:break-all; }
- button { font:inherit; padding:8px 20px; border-radius:6px; border:0; cursor:pointer; margin-right:10px; }
- .allow { background:#2f7d4f; color:#fff; } .deny { background:#7d2f2f; color:#fff; }
- .verdict { font-size:18px; margin:16px 0 4px; }
- pre { white-space:pre-wrap; color:#b9c0d4; background:#171a24; border:1px solid #232735;
-       border-radius:8px; padding:14px 16px; font-size:13px; }
- a { color:#4f8cff; }
+ /* 版面照這類工具的慣例：一列有名字的階段、判決當主角、細節預設收起來、
+    決策卡片旁邊寫這個動作會碰到什麼。等待人不是失敗，用琥珀色不用紅色。 */
+ :root { color-scheme: dark;
+   --bg:#0e1016; --panel:#151823; --line:#232838; --ink:#e8eaf2; --dim:#8990a8;
+   --blue:#5b8cff; --green:#3fb37f; --amber:#e0a83c; --red:#e35d5d; --violet:#a98bf5; }
+ * { box-sizing:border-box; }
+ body { font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        background:var(--bg); color:var(--ink); margin:0; padding:34px 40px 60px; }
+ code, .mono, table { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+ header { display:flex; align-items:baseline; gap:14px; margin-bottom:22px; }
+ h1 { font-size:19px; margin:0; font-weight:600; letter-spacing:-.01em; }
+ .repo { color:var(--dim); font-size:13px; }
+
+ /* 階段列：每一格自己說明它在做什麼，不是一個色塊 */
+ .steps { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+ .step { font-size:12.5px; padding:5px 11px; border-radius:999px; border:1px solid var(--line);
+         color:var(--dim); background:var(--panel); white-space:nowrap; }
+ .step.done { color:var(--green); border-color:#1f3a2e; }
+ .step.now  { color:var(--ink); border-color:var(--blue); background:#16203a; }
+ .step.wait { color:var(--amber); border-color:#3d3117; background:#211a09; }
+ .step.bad  { color:var(--red); border-color:#3d1f1f; background:#210d0d; }
+ .bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin:14px 0 6px; }
+ .bar > div { height:100%; background:var(--blue); width:0; transition:width .35s ease; }
+ .runline { color:var(--dim); font-size:13px; }
+
+ /* 判決當主角：大字、依結果換色，底下一句話說它為什麼是這個結果 */
+ .verdict { margin:26px 0 4px; }
+ .verdict .v { font-size:30px; font-weight:650; letter-spacing:-.02em; }
+ .verdict .why { color:var(--dim); font-size:14px; margin-top:6px; }
+ .v-noise { color:var(--ink); } .v-improve { color:var(--green); }
+ .v-regress { color:var(--red); }
+
+ .cards { display:flex; gap:10px; flex-wrap:wrap; margin:20px 0 4px; }
+ .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+         padding:11px 15px; min-width:112px; }
+ .card b { display:block; font-size:20px; font-weight:600; }
+ .card span { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.07em; }
+
+ /* 核准：三次寫入是一份逐項清單，還沒到的那幾條也看得見 */
+ .gate { background:#1a1408; border:1px solid #46381a; border-radius:12px;
+         padding:18px 20px; margin:22px 0; }
+ .gate h2 { font:600 13px/1 -apple-system, system-ui, sans-serif; margin:0 0 12px;
+            color:var(--amber); text-transform:uppercase; letter-spacing:.08em; }
+ .call { font-size:18px; font-weight:600; margin-bottom:10px; }
+ .args { border-collapse:collapse; font-size:13px; margin-bottom:14px; }
+ .args td { padding:2px 18px 2px 0; }
+ .args td:first-child { color:var(--dim); }
+ .scope { color:#d8c79a; font-size:13px; margin:0 0 14px; max-width:62ch; }
+ button { font:600 14px/1 -apple-system, system-ui, sans-serif; padding:10px 18px;
+          border-radius:8px; border:0; cursor:pointer; margin-right:10px; }
+ .allow { background:#2f7d4f; color:#fff; } .deny { background:#3a2020; color:#f0b4b4; }
+ .checklist { list-style:none; padding:0; margin:16px 0 0; font-size:13px; }
+ .checklist li { padding:3px 0; color:var(--dim); }
+ .checklist .ok::before   { content:"✓ "; color:var(--green); }
+ .checklist .no::before   { content:"✕ "; color:var(--red); }
+ .checklist .open::before { content:"● "; color:var(--amber); }
+ .checklist .todo::before { content:"○ "; }
+ .checklist .open { color:var(--ink); }
+
+ /* 評測期間的逐題進度：一題一格，每跑完一次點一顆。扇出是真的在動，看得出來 */
+ .live { display:grid; grid-template-columns:repeat(auto-fill, minmax(196px, 1fr));
+         gap:8px; margin-top:20px; }
+ .cell { background:var(--panel); border:1px solid var(--line); border-radius:9px;
+         padding:9px 12px; }
+ .cell .id { font-size:12px; color:var(--dim); margin-bottom:6px; }
+ .cell .arm { display:flex; align-items:center; gap:5px; margin-top:3px; }
+ .cell .arm em { font-style:normal; font-size:10px; color:#5a6076; width:58px;
+                 text-transform:uppercase; letter-spacing:.05em; }
+ .dot { width:8px; height:8px; border-radius:50%; background:#232838; }
+ .dot.pass { background:var(--green); } .dot.fail { background:var(--red); }
+ table.rows { border-collapse:collapse; width:100%; margin-top:10px; font-size:13px; }
+ table.rows th, table.rows td { text-align:left; padding:6px 12px 6px 0; border-bottom:1px solid #1a1e2c; }
+ table.rows th { color:var(--dim); font-weight:normal; font-size:11px;
+                 text-transform:uppercase; letter-spacing:.06em; }
+ .same { color:#59617a; } .flaky { color:var(--amber); } .broken { color:var(--red); }
+ .fixed { color:var(--green); } .unproven { color:var(--violet); } .incomplete { color:var(--violet); }
+ .fold { color:var(--dim); cursor:pointer; user-select:none; padding:7px 0; font-size:13px; }
+ .fold:hover { color:var(--ink); }
+ h3 { font-size:12px; text-transform:uppercase; letter-spacing:.07em;
+      color:var(--dim); font-weight:600; margin:30px 0 0; }
+ pre { white-space:pre-wrap; color:#b7bed4; background:var(--panel); border:1px solid var(--line);
+       border-radius:10px; padding:15px 17px; font-size:12.5px; margin-top:10px; }
+ .landed { background:#0f1e16; border:1px solid #1f3a2e; border-radius:12px;
+           padding:16px 20px; margin:22px 0; }
+ a { color:var(--blue); }
 </style>
-<h1>Agent Change Gate</h1>
-<div class="sub" id="phase">starting</div>
+<header><h1>Agent Change Gate</h1><span class="repo" id="repo"></span></header>
+<div class="steps" id="steps"></div>
 <div class="bar"><div id="fill"></div></div>
-<div class="sub" id="progress"></div>
-<div class="cards" id="cards"></div>
+<div class="runline" id="progress"></div>
+<div class="runline mono" id="specs"></div>
 <div id="gate"></div>
 <div class="verdict" id="verdict"></div>
+<div class="cards" id="cards"></div>
+<div class="live" id="live"></div>
 <div id="table"></div>
 <div id="analysis"></div>
 <script>
 const TOKEN = "__TOKEN__";
 const $ = id => document.getElementById(id);
-// 這一頁顯示的東西有一部分是 agent 寫的（工具摘要、失敗原因、sandbox 的分析）。
+// 這一頁顯示的東西有一部分是 agent 寫的（工具名稱與參數、失敗原因、sandbox 的分析）。
 // 直接塞進 innerHTML 等於讓被評測的 agent 決定這一頁執行什麼。
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const cls = d => ({same:'same',flaky:'flaky',broken:'broken',fixed:'fixed',incomplete:'incomplete'}[d]||'');
+const cls = d => ({same:'same',flaky:'flaky',broken:'broken',fixed:'fixed',
+                   unproven:'unproven',incomplete:'incomplete'}[d]||'');
+let openFold = false;
+
+// 階段名字自己交代在做什麼，讀的人不必先認得這個工具
+const STEPS = [
+  ['evaluating baseline',   s => s.arm === 'baseline' && s.phase === 'evaluating'],
+  ['evaluating candidate',  s => s.arm === 'candidate' && s.phase === 'evaluating'],
+  ['reading it in a sandbox', s => s.phase.startsWith('reading')],
+  ['waiting for a person',  s => s.phase === 'awaiting-approval'],
+  ['landed on GitHub',      s => s.phase === 'landed'],
+];
+function steps(s) {
+  const at = STEPS.findIndex(([, is]) => is(s));
+  return STEPS.map(([label], i) => {
+    let k = 'todo';
+    if (s.phase === 'failed' || s.error) k = i === 0 ? 'bad' : '';
+    else if (i === at) k = label === 'waiting for a person' ? 'wait' : 'now';
+    else if (at < 0 ? s.phase === 'landed' || s.phase === 'rejected' || s.phase.startsWith('done')
+                    : i < at) k = 'done';
+    return `<span class="step ${k}">${esc(label)}</span>`;
+  }).join('');
+}
+
+// 判決的字自己帶原因，旁邊那句話說它是怎麼算出來的
+function verdict(s) {
+  if (!s.verdict) return '';
+  const m = s.summary || {};
+  const tone = s.verdict.includes('improvement') ? 'v-improve'
+             : s.verdict.includes('regress') || s.verdict.includes('broke') ? 'v-regress' : 'v-noise';
+  const bits = [];
+  if (m.fixed) bits.push(`${m.fixed} fixed`);
+  if (m.broken) bits.push(`${m.broken} broken`);
+  if (m.flaky) bits.push(`${m.flaky} unstable in at least one arm`);
+  if (m.unproven) bits.push(`${m.unproven} moved but not past the significance test`);
+  if (m.incomplete) bits.push(`${m.incomplete} never finished`);
+  const same = (s.rows||[]).filter(r => r.delta === 'same').length;
+  if (same) bits.push(`${same} identical in both arms`);
+  const cost = s.baseline_tokens ? (s.candidate_tokens / s.baseline_tokens) : 0;
+  const costed = cost ? ` Costs ${cost.toFixed(2)}× the tokens of the current spec.` : '';
+  return `<div class="v ${tone}">${esc(s.verdict)}</div>
+          <div class="why">${esc(bits.join(' · '))}.${esc(costed)}</div>`;
+}
+
+// 核准卡：標題是工具名，底下是它的參數，按鈕旁邊寫這個決定會碰到什麼
+function gate(s) {
+  if (s.pending) {
+    const c = s.pending;
+    const name = [c.server, c.tool].filter(Boolean).join('.') || 'a tool call';
+    const args = Object.entries(c.input || {}).map(([k, v]) =>
+      `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+    return `<div class="gate">
+      <h2>waiting for a person</h2>
+      <div class="call mono">${esc(name)}</div>
+      ${args ? `<table class="args">${args}</table>` : ''}
+      <p class="scope">Approving lets the agent make this one call against
+         ${esc(s.repo || 'the repository')}. Reject and the call is refused:
+         nothing reaches GitHub, and the run stops here.</p>
+      <button class="allow" onclick="decide(true)">Approve this write</button>
+      <button class="deny" onclick="decide(false)">Reject</button>
+      ${checklist(s)}</div>`;
+  }
+  if (s.result) {
+    return `<div class="landed">${esc(s.result).replace(/(https?:\/\/\S+)/,
+              '<a href="$1" target="_blank">$1</a>')}</div>`;
+  }
+  return (s.decided||[]).length ? `<div class="gate">${checklist(s)}</div>` : '';
+}
+
+// 「還不能過」拆成具名的三條，而不是一顆灰掉的按鈕
+const WRITES = [['create_branch', 'create the branch'],
+                ['create_or_update_file', 'commit the new spec'],
+                ['create_pull_request', 'open the pull request']];
+function checklist(s) {
+  const done = s.decided || [];
+  const items = WRITES.map(([tool, label]) => {
+    const d = done.find(x => x.tool === tool);
+    const k = d ? (d.allowed ? 'ok' : 'no') : (s.pending && s.pending.tool === tool ? 'open' : 'todo');
+    return `<li class="${k}">${esc(label)}</li>`;
+  }).join('');
+  return `<ul class="checklist">${items}</ul>`;
+}
+
+// 全都一樣的那些列收成一行：16 列裡通常只有 1 列有話要說
+function table(s) {
+  const rows = s.rows || [];
+  if (!rows.length) return '';
+  const moved = rows.filter(r => r.delta !== 'same');
+  const same = rows.filter(r => r.delta === 'same');
+  const tr = r => `<tr><td>${esc(r.id)}</td><td>${esc(r.baseline)}</td><td>${esc(r.candidate)}</td>
+    <td class="${cls(r.delta)}">${esc(r.delta)}</td><td>${esc((r.why||'').slice(0,70))}</td></tr>`;
+  const head = `<table class="rows"><tr><th>scenario</th><th>baseline</th><th>candidate</th>
+                <th>change</th><th>why</th></tr>`;
+  const fold = same.length
+    ? `<div class="fold" onclick="toggleFold()">${openFold ? '▾' : '▸'} ${same.length}
+       scenarios scored the same in both arms</div>`
+    : '';
+  return head + moved.map(tr).join('') + '</table>' + fold +
+         (openFold && same.length ? head + same.map(tr).join('') + '</table>' : '');
+}
+function toggleFold() { openFold = !openFold; tick(); }
+
+// 評測跑十幾分鐘，這段時間畫面上只有進度列的話等於空的。
+// 一題一格、每跑完一次點一顆，扇出在動這件事就看得見。
+function live(s) {
+  if (s.verdict || !Object.keys(s.live || {}).length) return '';
+  const slots = s.repeats || 1;
+  return Object.keys(s.live).sort().map(id => {
+    const arms = ['baseline', 'candidate'].map(arm => {
+      const got = (s.live[id] || {})[arm] || [];
+      const dots = Array.from({length: slots}, (_, i) =>
+        `<span class="dot ${i < got.length ? (got[i] ? 'pass' : 'fail') : ''}"></span>`).join('');
+      return `<div class="arm"><em>${arm}</em>${dots}</div>`;
+    }).join('');
+    return `<div class="cell"><div class="id mono">${esc(id)}</div>${arms}</div>`;
+  }).join('');
+}
+
 async function tick() {
   const s = await (await fetch('/state')).json();
-  $('phase').textContent = s.error ? 'error: ' + s.error : s.phase + (s.arm ? ' · ' + s.arm : '');
+  $('repo').textContent = s.repo ? s.repo + (s.branch ? ' · ' + s.branch : '') : '';
+  $('steps').innerHTML = s.error
+    ? `<span class="step bad">${esc(s.phase)}: ${esc(s.error)}</span>` : steps(s);
   const pct = s.runs_total ? Math.round(100 * s.runs_done / s.runs_total) : 0;
   $('fill').style.width = pct + '%';
   $('progress').textContent = s.runs_total
     ? `${s.runs_done} / ${s.runs_total} scenario runs · one subagent each`
     : '';
+  $('specs').textContent = s.spec ? `${s.spec}  vs  ${s.candidate}` : '';
+  $('gate').innerHTML = gate(s);
+  $('verdict').innerHTML = verdict(s);
   const sm = s.summary || {};
+  const n = v => v ? v.toLocaleString() : '–';
   $('cards').innerHTML = [
-    ['scenarios', s.scenarios], ['runs per arm', s.repeats],
-    ['flaky', sm.flaky ?? '–'], ['incomplete', sm.incomplete ?? '–'],
-    ['baseline tok', (s.baseline_tokens||0).toLocaleString()],
-    ['candidate tok', (s.candidate_tokens||0).toLocaleString()],
+    ['scenarios', s.scenarios || '–'], ['runs per arm', s.repeats || '–'],
+    ['flaky', s.verdict ? (sm.flaky ?? 0) : '–'],
+    ['incomplete', s.verdict ? (sm.incomplete ?? 0) : '–'],
+    ['baseline tok', n(s.baseline_tokens)], ['candidate tok', n(s.candidate_tokens)],
     ['gate stops', s.approvals],
   ].map(([k,v]) => `<div class="card"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
-  $('gate').innerHTML = s.pending
-    ? `<div class="gate"><b>Approval required</b><code>${esc(s.pending)}</code>
-       <button class="allow" onclick="decide(true)">Approve</button>
-       <button class="deny" onclick="decide(false)">Reject</button></div>`
-    : (s.result ? `<div class="gate">${s.result.replace(/(https?:\\/\\/\\S+)/,'<a href="$1" target="_blank">$1</a>')}</div>` : '');
-  $('verdict').textContent = s.verdict ? 'Verdict: ' + s.verdict : '';
-  $('table').innerHTML = (s.rows||[]).length ? `<table><tr><th>scenario</th><th>baseline</th>
-    <th>candidate</th><th>change</th><th>why</th></tr>` + s.rows.map(r =>
-    `<tr><td>${esc(r.id)}</td><td>${esc(r.baseline)}</td><td>${esc(r.candidate)}</td>
-     <td class="${cls(r.delta)}">${esc(r.delta)}</td><td>${esc((r.why||'').slice(0,70))}</td></tr>`).join('') + '</table>' : '';
-  $('analysis').innerHTML = s.analysis ? '<pre>' + esc(s.analysis) + '</pre>' : '';
+  $('live').innerHTML = live(s);
+  $('table').innerHTML = table(s);
+  $('analysis').innerHTML = s.analysis
+    ? '<h3>read by code the agent ran in its sandbox</h3><pre>' + esc(s.analysis) + '</pre>' : '';
 }
 async function decide(allow) {
   await fetch('/decide', {method:'POST', headers:{'X-Gate-Token': TOKEN},
@@ -114,13 +293,15 @@ def run_gate(a, state: GateState) -> None:
         cand_spec = json.loads(Path(a.candidate).read_text())
         total = len(scenarios) * max(1, a.repeat)
         state.update(scenarios=len(scenarios), repeats=a.repeat, runs_total=total * 2,
+                     repo=a.repo or "", branch=a.branch if a.repo else "",
+                     spec=a.spec, candidate=a.candidate,
                      phase="evaluating", arm="baseline")
 
         base = runner.run_arm("baseline", base_spec, scenarios, a.batch_size, a.repeat,
-                              on_result=lambda r: state.count_run())
+                              on_result=lambda r: state.count_run("baseline", r.scenario_id, r.ok))
         state.update(baseline_tokens=base.total_tokens, arm="candidate")
         cand = runner.run_arm("candidate", cand_spec, scenarios, a.batch_size, a.repeat,
-                              on_result=lambda r: state.count_run())
+                              on_result=lambda r: state.count_run("candidate", r.scenario_id, r.ok))
 
         comparison = report.Comparison(scenarios, base, cand)
         state.update(candidate_tokens=cand.total_tokens, rows=comparison.rows(),
@@ -141,7 +322,7 @@ def run_gate(a, state: GateState) -> None:
         if pending is None:
             state.update(phase="done", error="the write-back agent never reached a write tool")
             return
-        landed, output = writeback.land(pending, lambda p: state.ask(p.tool_summary))
+        landed, output = writeback.land(pending, lambda p: state.ask(p.call))
         state.update(phase="landed" if landed else "rejected", result=output)
     except Exception as e:                      # 介面要說出哪裡壞了，不能只是停住
         state.update(phase="failed", error=f"{type(e).__name__}: {e}")

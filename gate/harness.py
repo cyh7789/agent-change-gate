@@ -229,8 +229,8 @@ def _find_turn(session_id: str, message: str) -> str | None:
     return None
 
 
-def describe_call(session_id: str, source_event_id: str, call_id: str) -> str | None:
-    """核准閘上那個呼叫在做什麼，例如 `github.create_branch  branch=change-gate/final`。
+def describe_call(session_id: str, source_event_id: str, call_id: str) -> dict | None:
+    """核准閘上那個呼叫在做什麼：`{"tool": "create_branch", "server": "github", "input": {...}}`。
 
     `tool.approval_required` 只帶 `{id, source_event_id}`，工具名稱不在裡面（實測）。
     名稱在 `source_event_id` 指的那筆 `model.message` 的 `function.arguments` 裡，
@@ -251,14 +251,13 @@ def describe_call(session_id: str, source_event_id: str, call_id: str) -> str | 
             try:
                 args = json.loads(fn.get("arguments") or "{}")
             except ValueError:
-                return fn.get("name")
+                return {"tool": fn.get("name"), "server": None, "input": {}}
             # MCP 的呼叫外面包一層 call_tool，真正的工具名在 arguments 裡。
-            tool = args.get("tool_name") or fn.get("name")
-            server = args.get("mcp_server")
-            head = f"{server}.{tool}" if server and tool else (tool or fn.get("name"))
-            detail = ", ".join(f"{k}={v}" for k, v in (args.get("input") or {}).items()
-                               if isinstance(v, (str, int, float)) and len(str(v)) <= 60)
-            return f"{head}  {detail}".strip() if detail else head
+            return {"tool": args.get("tool_name") or fn.get("name"),
+                    "server": args.get("mcp_server"),
+                    # 長字串是檔案內容，塞進卡片會把要看的東西擠掉
+                    "input": {k: v for k, v in (args.get("input") or {}).items()
+                              if isinstance(v, (str, int, float)) and len(str(v)) <= 60}}
     return None
 
 

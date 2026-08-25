@@ -12,15 +12,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gate.state import GateState
 
+CALL = {"tool": "create_branch", "server": "github", "input": {"branch": "change-gate/x"}}
+PR_CALL = {"tool": "create_pull_request", "server": "github", "input": {"title": "spec change"}}  # 核准閘公布的是結構化的呼叫，不是一行字
+
 
 def test_ask_blocks_until_someone_decides():
     st = GateState()
     answers = []
-    t = threading.Thread(target=lambda: answers.append(st.ask("create_branch")))
+    t = threading.Thread(target=lambda: answers.append(st.ask(CALL)))
     t.start()
     t.join(0.2)
     assert t.is_alive(), "評測執行緒必須停在核准閘前面"
-    assert st.snapshot()["pending"] == "create_branch"
+    assert st.snapshot()["pending"] == CALL
 
     st.decide(True)
     t.join(2)
@@ -34,8 +37,8 @@ def test_a_second_call_waits_again_after_the_first_was_allowed():
     answers = []
 
     def two_calls():
-        answers.append(st.ask("create_branch"))
-        answers.append(st.ask("create_pull_request"))
+        answers.append(st.ask(CALL))
+        answers.append(st.ask(PR_CALL))
 
     t = threading.Thread(target=two_calls)
     t.start()
@@ -43,7 +46,7 @@ def test_a_second_call_waits_again_after_the_first_was_allowed():
     st.decide(True)
     t.join(0.2)
     assert answers == [True], "第二次呼叫必須重新等人回答"
-    assert st.snapshot()["pending"] == "create_pull_request"
+    assert st.snapshot()["pending"] == PR_CALL
 
     st.decide(False)
     t.join(2)
