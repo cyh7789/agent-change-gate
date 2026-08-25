@@ -6,8 +6,11 @@
   2. 續接用的 sequence 要取最後一個帶 id 的事件，不是最後一個事件
   3. 遇到核准要求時必須停下並交出 tool_call_id，不能吃掉繼續跑
 """
+import io
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -159,3 +162,18 @@ def test_sequence_id_belongs_to_the_event_it_follows(monkeypatch):
     events = list(harness._stream("http://x/turns", {"input": []}))
     assert [(e.type, e.seq) for e in events] == [
         ("turn.created", 1), ("model.message", 2), ("turn.done", 3)]
+
+
+def test_an_http_error_on_the_stream_is_not_mistaken_for_a_dropped_connection(monkeypatch):
+    """HTTPError 是 URLError 的子類，落進斷線那條路的話，一個 400 會安靜地變成「沒有輸出」。"""
+    import urllib.error
+    from gate import harness
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {},
+                                     io.BytesIO(b'{"error":{"message":"bad manifest"}}'))
+
+    monkeypatch.setattr(harness.urllib.request, "urlopen", boom)
+    with pytest.raises(harness.HarnessError) as e:
+        harness.run_turn("sess", "hello")
+    assert "400" in str(e.value) and "bad manifest" in str(e.value)
