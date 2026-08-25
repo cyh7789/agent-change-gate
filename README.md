@@ -82,6 +82,42 @@ Same two specs, same 16 scenarios. One run per arm: an improvement that also sav
 both the direction and the sign of the cost wrong, and nothing about that report
 looks uncertain.
 
+## What three runs still cannot settle
+
+The same two specs, evaluated four times at three runs per arm, did not reach the same
+verdict:
+
+| run | baseline | candidate | `issue-332082` | verdict | tokens |
+|---|---|---|---|---|---|
+| 1 | 43/48 | 42/48 | 1/3 → 0/3 | no change outside noise | 1.01x |
+| 2 | 42/48 | 43/48 | 0/3 → 1/3 | no change outside noise | 1.07x |
+| 3 | 44/48 | 45/48 | 2/3 → 3/3 | no change outside noise | 1.03x |
+| 4 | 42/48 | 45/48 | **0/3 → 3/3** | **improvement** | 1.10x |
+
+(Run 1 predates the fix in #5 and was comparing two specs that were never in effect; it is
+here for completeness, not as evidence.)
+
+One scenario drives all of it, and the fourth run exposes a real limitation in how `flaky`
+is decided. The rule is "unstable in either arm", implemented as a partial pass:
+`0 < passes < n`. When a scenario happens to land 0/3 in one arm and 3/3 in the other,
+neither arm is partial, so nothing looks unstable and the change is credited with fixing it.
+
+Three runs is enough to catch the direction error a single run makes, and not enough to settle a
+scenario this noisy. Counting passes is the wrong instrument for that last step; comparing
+intervals is the right one, and the sandbox read already does it:
+
+```
+Wilson intervals overlap: True
+→ the increase from baseline to candidate is not statistically significant at 95%
+```
+
+So on the run that the deterministic verdict called an improvement, the statistical read
+called it noise. The two layers have different blind spots, which is an argument for keeping
+both rather than for trusting either alone. Folding interval overlap into the verdict itself
+is the obvious next change, and it is deliberately not in this submission: the demo video
+records the current behaviour, and shipping a different rule than the one on camera would be
+worse than the limitation.
+
 ## Setup
 
 Needs Python 3.11+, Node (for `npx`), the `gh` CLI logged in, and a Gemini API key.
@@ -166,6 +202,39 @@ probe/              standalone scripts that verify the harness capabilities used
 ```
 
 `python3 -m pytest tests -q`
+
+## Qodo code review evidence
+
+Qodo reviewed every pull request in this repository and raised **23 findings** across
+#1, #3, #5, #6, #9 and #10. All of them were read; the per-finding disposition, including
+the two judged not to be defects and why, is the comment on
+[#10](https://github.com/cyh7789/agent-change-gate/pull/10).
+
+Three were security issues, and all three were real:
+
+| finding | what it meant |
+|---|---|
+| Credentials leak through argv | `ps` showed the Gemini API key to every user on the machine |
+| Unauthenticated approval endpoint | binding to localhost keeps other machines out, not other processes, and that endpoint releases irreversible actions |
+| Unescaped HTML injection | tool summaries, failure reasons and the sandbox's own analysis are model-written and went into `innerHTML` |
+
+The one worth reading is the approval deadlock. `ask()` published the pending call, released
+the lock, then cleared the event, so a decision landing in that window was erased and the
+evaluation thread waited forever. In a demo that is a console frozen on "awaiting approval"
+with no way to unfreeze it. It is closed structurally, under one `Condition`, and **no test
+pins it**: the window is a few instructions wide and 200 paired rounds never reproduced it
+against the old code. A test that passes on both versions would be worse than the admission.
+
+Qodo also flagged "subagents recursively fan out" early, from a premise that turned out to be
+wrong. Subagents inherit nothing at all, which is worse, and reading that review sooner would
+have found it hours earlier.
+
+Two of the fixes came with their own mistake, which is the honest part of the trail:
+recovering an abandoned turn first took `data[0]` from the turn listing, and that listing is
+oldest-first. The test written alongside it had a single-element list, so it could not have
+caught the error. Qodo's follow-up then pointed out that even the newest turn is the wrong
+answer, because nothing tied it to the turn being recovered; it now matches on the input the
+turn records.
 
 ## AI assistance
 
