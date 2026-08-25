@@ -26,8 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--branch", default="change-gate/candidate")
     ap.add_argument("--batch-size", type=int, default=4,
                     help="一批交給幾個 subagent。批內由 harness 扇出，批之間序列跑")
-    ap.add_argument("--repeat", type=int, default=3,
-                    help="每個情境每組跑幾次。模型不是確定性的，跑一次分不出雜訊與真的退步")
+    ap.add_argument("--repeat", type=int, default=5,
+                    help="每個情境每組跑幾次。三次的極限差異(0/3 對 3/3)只有 p=0.1，"
+                         "撐不起任何一題的 fixed/broken 宣告，所以預設五次")
     ap.add_argument("--no-analysis", action="store_true",
                     help="跳過 sandbox 統計解讀（判決不受影響）")
     ap.add_argument("--yes", action="store_true", help="不詢問直接核准（僅供自動化，預設要人回答）")

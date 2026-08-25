@@ -10,10 +10,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import comb
 
 from .checks import check
 from .runner import ArmResult
 from .scenarios import ScenarioSet
+
+
+ALPHA = 0.05
+
+
+def fisher_exact_p(bp: int, bn: int, cp: int, cn: int) -> float:
+    """兩組通過數差異的雙尾 Fisher exact p 值。
+
+    純標準庫，確定性：同一組計數永遠得到同一個 p，判決才重跑得出來。
+
+    值得記住的是它對次數的下限：三次重複能做到的最強差異是 0/3 對 3/3，p = 0.1，
+    永遠過不了 0.05。要宣告某一題被修好或弄壞，每組至少要跑四次。
+    """
+    a, b, c, d = bp, bn - bp, cp, cn - cp
+    n, row1, row2, col1 = bn + cn, a + b, c + d, a + c
+    if not n or not row1 or not row2:
+        return 1.0
+    observed = comb(row1, a) * comb(row2, c) / comb(n, col1)
+    total = 0.0
+    for k in range(max(0, col1 - row2), min(row1, col1) + 1):
+        p = comb(row1, k) * comb(row2, col1 - k) / comb(n, col1)
+        if p <= observed + 1e-12:
+            total += p
+    return min(total, 1.0)
 
 
 @dataclass
@@ -56,14 +81,22 @@ class Comparison:
                              "candidate_pass": cp, "candidate_n": cn})
                 continue
             flaky = (0 < bp < bn) or (0 < cp < cn)
+            # 方向看通過率不看通過次數：兩組跑成的次數可以不同（失敗的 run 被排除），
+            # 3/3 對 5/5 是同一個結果，不是「多過了兩次」。
+            moved = (bp / bn) != (cp / cn)
+            p = fisher_exact_p(bp, bn, cp, cn)
             if flaky:
                 delta = "flaky"
-            elif cp == cn and bp < bn:
-                delta = "fixed"
-            elif bp == bn and cp < cn:
-                delta = "broken"
-            else:
+            elif not moved:
                 delta = "same"
+            elif p > ALPHA:
+                # 有方向，沒有證據。四次執行裡有一次就是這樣被記成 improvement 的：
+                # 一組 0/3、另一組 3/3，兩邊都不部分通過，flaky 看不見，而 p = 0.1。
+                delta = "unproven"
+            elif cp / cn > bp / bn:
+                delta = "fixed"
+            else:
+                delta = "broken"
             why = ""
             if cp < cn:
                 for r in self._scored(self.candidate, s.id):
@@ -71,6 +104,9 @@ class Comparison:
                     if not ok:
                         why = reason
                         break
+            if delta == "unproven":
+                # 這一列存在的理由就是那個 p 值，不能被失敗原因蓋掉。
+                why = f"direction only, p={p:.2f} at {bn} and {cn} runs"
             rows.append({"id": s.id, "baseline": f"{bp}/{bn}", "candidate": f"{cp}/{cn}",
                          "delta": delta, "why": why,
                          "baseline_pass": bp, "baseline_n": bn,
@@ -90,6 +126,7 @@ class Comparison:
             "fixed": sum(1 for r in rows if r["delta"] == "fixed"),
             "broken": sum(1 for r in rows if r["delta"] == "broken"),
             "flaky": sum(1 for r in rows if r["delta"] == "flaky"),
+            "unproven": sum(1 for r in rows if r["delta"] == "unproven"),
             "incomplete": sum(1 for r in rows if r["delta"] == "incomplete"),
             "baseline_tokens": bt, "candidate_tokens": ct,
             "token_ratio": (ct / bt) if bt else None,
@@ -118,7 +155,8 @@ class Comparison:
             "",
             f"**Verdict: {self.verdict()}.** {s['fixed']} fixed, {s['broken']} broken, "
             f"{s['flaky']} flaky (unstable in at least one arm, not attributed to the change), "
-            f"{s['incomplete']} incomplete (never ran to completion, not scored). "
+            f"{s['unproven']} unproven (moved, but not past a Fisher exact test at "
+            f"p<={ALPHA}), {s['incomplete']} incomplete (never ran to completion, not scored). "
             f"Token cost {ratio} of baseline.",
             "",
             f"Every scenario ran {s['repeats']}× per arm, because the model is not deterministic: "

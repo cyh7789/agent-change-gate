@@ -50,16 +50,17 @@ def test_a_scenario_unstable_in_the_baseline_is_also_flaky():
 
 
 def test_consistently_lost_is_broken():
+    # 五次：三次重複的差異過不了檢定，見 test_significance.py
     s = _set("a")
-    base = _arm("baseline", {"a": ["bug", "bug", "bug"]})
-    cand = _arm("candidate", {"a": ["feature-request"] * 3})
+    base = _arm("baseline", {"a": ["bug"] * 5})
+    cand = _arm("candidate", {"a": ["feature-request"] * 5})
     assert _delta(s, base, cand, "a") == "broken"
 
 
 def test_consistently_gained_is_fixed():
     s = _set("a")
-    base = _arm("baseline", {"a": ["feature-request"] * 3})
-    cand = _arm("candidate", {"a": ["bug", "bug", "bug"]})
+    base = _arm("baseline", {"a": ["feature-request"] * 5})
+    cand = _arm("candidate", {"a": ["bug"] * 5})
     assert _delta(s, base, cand, "a") == "fixed"
 
 
@@ -75,8 +76,8 @@ def test_flaky_scenarios_are_not_counted_as_regressions_in_the_verdict():
 
 def test_a_real_regression_still_reaches_the_verdict():
     s = _set("a", "b")
-    base = _arm("baseline", {"a": ["bug"] * 3, "b": ["bug"] * 3})
-    cand = _arm("candidate", {"a": ["feature-request"] * 3, "b": ["bug"] * 3})
+    base = _arm("baseline", {"a": ["bug"] * 5, "b": ["bug"] * 5})
+    cand = _arm("candidate", {"a": ["feature-request"] * 5, "b": ["bug"] * 5})
     assert Comparison(s, base, cand).verdict() == "regression"
 
 
