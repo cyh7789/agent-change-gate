@@ -66,13 +66,13 @@ class ArmResult:
 
 
 def coordinator_manifest(manifest: dict) -> dict:
-    """把受測 spec 變成扇出協調者：instructions 原封不動，後面接扇出協定。
+    """受測 spec 的模型與設定照用，instructions 換成純分派者。
 
-    subagent 繼承同一份 instructions，所以量到的還是受測 spec 的行為；
-    協定只規定「怎麼把題目發下去」，不碰怎麼答。
+    受測的 instructions 不放在協調者身上：subagent 繼承不到它們，而協調者自己也
+    不該按著受測規則作答。那份規則跟著題目走，見 `fanout.batch_prompt`。
     """
     m = copy.deepcopy(manifest)
-    m["instructions"] = (m.get("instructions") or "") + fanout.PROTOCOL
+    m["instructions"] = fanout.DISPATCHER
     cfg = m.setdefault("config", {})
     cfg.setdefault("dynamic_sub_agents", {})["enabled"] = True
     return m
@@ -94,12 +94,13 @@ def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
     拿到的就不是這次要量的那個設定。
     """
     agent_name = f"{label}-{uuid.uuid4().hex[:8]}"
+    instructions = manifest.get("instructions") or ""
     harness.create_agent(agent_name, coordinator_manifest(manifest))
     arm = ArmResult(label=label, agent_name=agent_name)
     ordered = sorted(scenarios.scenarios, key=lambda s: s.id)
     for items in _batches(ordered, repeat, max(1, batch_size)):
         try:
-            handled, metrics = fanout.run_batch(agent_name, items)
+            handled, metrics = fanout.run_batch(agent_name, items, instructions)
         except harness.HarnessError as e:
             handled = [fanout.Handled(sc.id, None, str(e)[:200]) for _, sc in items]
             metrics = {}

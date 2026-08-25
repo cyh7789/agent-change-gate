@@ -7,6 +7,7 @@ harness 的核准閘是掛在工具呼叫上的，繞過工具就繞過了閘門
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from . import harness
 
@@ -30,6 +31,12 @@ class PendingWrite:
     tool_summary: str
 
 
+def _pending(session_id: str, event: dict) -> PendingWrite:
+    call = (event.get("tool_calls") or [{}])[0]
+    return PendingWrite(session_id=session_id, thread_id=event.get("thread_id", "main"),
+                        tool_call_id=call.get("id", ""), tool_summary=str(call)[:200])
+
+
 def propose(repo: str, branch: str, path: str, content: str, title: str, report_md: str) -> PendingWrite | None:
     """送出寫回請求，回傳停在核准閘的那一刻。None 代表 agent 沒有觸發任何需要核准的工具。"""
     name = f"writeback-{branch.replace('/', '-')}"
@@ -49,16 +56,25 @@ def propose(repo: str, branch: str, path: str, content: str, title: str, report_
     res = harness.run_turn(sid, msg, stop_at_approval=True)
     if res.pending_approval is None:
         return None
-    ev = res.pending_approval
-    call = (ev.get("tool_calls") or [{}])[0]
-    return PendingWrite(session_id=sid, thread_id=ev.get("thread_id", "main"),
-                        tool_call_id=call.get("id", ""), tool_summary=str(call)[:200])
+    return _pending(sid, res.pending_approval)
 
 
-def approve(pending: PendingWrite) -> str | None:
-    return harness.decide(pending.session_id, pending.thread_id, pending.tool_call_id, allow=True).output
+def land(pending: PendingWrite, ask: Callable[[PendingWrite], bool],
+         reason: str = "Rejected at the change gate.") -> tuple[bool, str | None]:
+    """把寫回跑完，每一個要核准的工具都問過一次。
 
+    開分支、提交、開 PR 是三個工具呼叫，harness 會逐一停下來要核准；只回答第一個
+    的話，turn 會停在第二個上，GitHub 上留下一個沒有 PR 的分支。
 
-def reject(pending: PendingWrite, reason: str) -> str | None:
-    return harness.decide(pending.session_id, pending.thread_id, pending.tool_call_id,
-                          allow=False, reason=reason).output
+    回傳 (是否全部核准, agent 的最後輸出)。任何一次拒絕就結束。
+    """
+    current = pending
+    while True:
+        allow = ask(current)
+        res = harness.decide(current.session_id, current.thread_id,
+                             current.tool_call_id, allow=allow, reason=reason)
+        if not allow:
+            return False, res.output
+        if res.pending_approval is None:
+            return True, res.output
+        current = _pending(current.session_id, res.pending_approval)

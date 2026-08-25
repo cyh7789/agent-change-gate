@@ -22,16 +22,39 @@ class Comparison:
     baseline: ArmResult
     candidate: ArmResult
 
+    @staticmethod
+    def _scored(arm: ArmResult, sid: str) -> list:
+        """只有真的跑到底的那幾次算數。
+
+        harness 掛掉、核准閘在評測中攔下、subagent 沒接到題，這些是評測沒跑成，
+        不是模型答錯。混進來的話，一次基礎設施故障會被報成整組退步。
+        """
+        return [r for r in arm.for_scenario(sid) if r.error is None]
+
     def _passes(self, arm: ArmResult, sid: str, expect: dict) -> int:
-        return sum(1 for r in arm.for_scenario(sid) if check(r.output, expect)[0])
+        return sum(1 for r in self._scored(arm, sid) if check(r.output, expect)[0])
+
+    @staticmethod
+    def _first_error(arm: ArmResult, sid: str) -> str:
+        for r in arm.for_scenario(sid):
+            if r.error:
+                return r.error
+        return "no run completed"
 
     def rows(self) -> list[dict]:
         rows = []
         for s in sorted(self.scenarios.scenarios, key=lambda x: x.id):
-            bn = len(self.baseline.for_scenario(s.id)) or 1
-            cn = len(self.candidate.for_scenario(s.id)) or 1
+            bn = len(self._scored(self.baseline, s.id))
+            cn = len(self._scored(self.candidate, s.id))
             bp = self._passes(self.baseline, s.id, s.expect)
             cp = self._passes(self.candidate, s.id, s.expect)
+            if bn == 0 or cn == 0:
+                arm = self.baseline if bn == 0 else self.candidate
+                rows.append({"id": s.id, "baseline": f"{bp}/{bn}", "candidate": f"{cp}/{cn}",
+                             "delta": "incomplete", "why": self._first_error(arm, s.id),
+                             "baseline_pass": bp, "baseline_n": bn,
+                             "candidate_pass": cp, "candidate_n": cn})
+                continue
             flaky = (0 < bp < bn) or (0 < cp < cn)
             if flaky:
                 delta = "flaky"
@@ -43,7 +66,7 @@ class Comparison:
                 delta = "same"
             why = ""
             if cp < cn:
-                for r in self.candidate.for_scenario(s.id):
+                for r in self._scored(self.candidate, s.id):
                     ok, reason = check(r.output, s.expect)
                     if not ok:
                         why = reason
@@ -67,12 +90,15 @@ class Comparison:
             "fixed": sum(1 for r in rows if r["delta"] == "fixed"),
             "broken": sum(1 for r in rows if r["delta"] == "broken"),
             "flaky": sum(1 for r in rows if r["delta"] == "flaky"),
+            "incomplete": sum(1 for r in rows if r["delta"] == "incomplete"),
             "baseline_tokens": bt, "candidate_tokens": ct,
             "token_ratio": (ct / bt) if bt else None,
         }
 
     def verdict(self) -> str:
         s = self.summary()
+        if s["incomplete"]:
+            return "incomplete"          # 有情境根本沒跑成，不能拿這組數字下結論
         if s["broken"] and not s["fixed"]:
             return "regression"
         if s["fixed"] and not s["broken"]:
@@ -90,7 +116,8 @@ class Comparison:
             "## Change Gate report",
             "",
             f"**Verdict: {self.verdict()}.** {s['fixed']} fixed, {s['broken']} broken, "
-            f"{s['flaky']} flaky (unstable in at least one arm, not attributed to the change). "
+            f"{s['flaky']} flaky (unstable in at least one arm, not attributed to the change), "
+            f"{s['incomplete']} incomplete (never ran to completion, not scored). "
             f"Token cost {ratio} of baseline.",
             "",
             f"Every scenario ran {s['repeats']}× per arm, because the model is not deterministic: "

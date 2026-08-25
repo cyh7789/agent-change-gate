@@ -46,7 +46,7 @@ def _patch(monkeypatch, res):
 def test_answers_follow_the_item_marker_not_the_spawn_order(monkeypatch):
     """協調者不保證照題目順序開 subagent：這裡先開 ITEM 2 再開 ITEM 1。"""
     _patch(monkeypatch, _turn([("t2", 2, "feature-request"), ("t1", 1, "bug")]))
-    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(2))])
+    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(2))], "You triage GitHub issues.")
     assert {h.scenario_id: h.output for h in handled} == {"s1": "bug", "s2": "feature-request"}
 
 
@@ -59,13 +59,13 @@ def test_thread_output_lands_on_the_thread_that_produced_it(monkeypatch):
 
 def test_repeated_scenario_in_one_batch_keeps_both_answers(monkeypatch):
     _patch(monkeypatch, _turn([("t2", 2, "feature-request"), ("t1", 1, "bug")]))
-    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(1))])
+    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(1))], "You triage GitHub issues.")
     assert [h.output for h in handled] == ["bug", "feature-request"]
 
 
 def test_item_no_subagent_took_is_an_error_not_a_failed_answer(monkeypatch):
     _patch(monkeypatch, _turn([("t1", 1, "bug")]))
-    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(2))])
+    handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(2))], "You triage GitHub issues.")
     missed = [h for h in handled if h.scenario_id == "s2"][0]
     assert missed.output is None
     assert "no subagent" in missed.error
@@ -77,24 +77,82 @@ def test_errored_thread_does_not_count_as_an_answer(monkeypatch):
         if e.type == "thread.done":
             e.data["state"] = {"status": "error", "message": "boom"}
     _patch(monkeypatch, res)
-    handled, _ = fanout.run_batch("agent", [(1, _sc(1))])
+    handled, _ = fanout.run_batch("agent", [(1, _sc(1))], "You triage GitHub issues.")
     assert handled[0].output is None and handled[0].error
 
 
 def test_batch_metrics_come_from_the_turn(monkeypatch):
     _patch(monkeypatch, _turn([("t1", 1, "bug")], {"total_tokens": 4242}))
-    _, metrics = fanout.run_batch("agent", [(1, _sc(1))])
+    _, metrics = fanout.run_batch("agent", [(1, _sc(1))], "You triage GitHub issues.")
     assert metrics["total_tokens"] == 4242
 
 
-def test_coordinator_keeps_the_spec_instructions_and_enables_subagents():
+def test_the_coordinator_does_not_carry_the_spec_under_test():
+    """協調者拿到受測 instructions 的話，它自己就會照那份規則作答，測的就不是 subagent 了。"""
     m = runner.coordinator_manifest({"model": {"name": "m"}, "instructions": "You triage issues."})
-    assert m["instructions"].startswith("You triage issues.")
+    assert "You triage issues." not in m["instructions"]
     assert "subagent" in m["instructions"]
     assert m["config"]["dynamic_sub_agents"]["enabled"] is True
+
+
+def test_every_item_carries_the_spec_under_test():
+    """subagent 繼承不到 instructions，所以受測規則必須寫在每個 item 裡。"""
+    prompt = fanout.batch_prompt([(1, _sc(1)), (2, _sc(2))], "You triage GitHub issues.")
+    assert prompt.count("You triage GitHub issues.") == 2
+    assert prompt.index("ITEM 1") < prompt.index("You triage GitHub issues.") < prompt.index("question 1")
 
 
 def test_coordinator_does_not_mutate_the_spec_it_was_given():
     spec = {"model": {"name": "m"}, "instructions": "original"}
     runner.coordinator_manifest(spec)
     assert spec == {"model": {"name": "m"}, "instructions": "original"}
+
+
+def test_every_tool_call_in_a_write_back_goes_through_the_gate(monkeypatch):
+    """開分支、提交、開 PR 是三個工具呼叫，每一個都要各自核准。
+
+    只回答第一個的話，turn 會停在第二個上，GitHub 留下一個沒有 PR 的分支。
+    """
+    from gate import harness, writeback
+
+    def pending_event(call_id):
+        return {"thread_id": "main", "tool_calls": [{"id": call_id, "name": "create_branch"}]}
+
+    calls = []
+
+    def fake_decide(sid, thread, call_id, allow, reason=""):
+        calls.append((call_id, allow))
+        res = harness.TurnResult()
+        if len(calls) < 3:
+            res.pending_approval = pending_event(f"call_{len(calls) + 1}")
+        else:
+            res.output = "opened https://github.com/o/r/pull/9"
+        return res
+
+    monkeypatch.setattr(harness, "decide", fake_decide)
+    first = writeback.PendingWrite("sess", "main", "call_1", "create_branch")
+    landed, output = writeback.land(first, lambda p: True)
+
+    assert landed and "pull/9" in output
+    assert [c for c, _ in calls] == ["call_1", "call_2", "call_3"]
+
+
+def test_rejecting_a_later_call_stops_the_write_back(monkeypatch):
+    from gate import harness, writeback
+
+    calls = []
+
+    def fake_decide(sid, thread, call_id, allow, reason=""):
+        calls.append((call_id, allow))
+        res = harness.TurnResult()
+        if allow:
+            res.pending_approval = {"thread_id": "main", "tool_calls": [{"id": "call_2"}]}
+        else:
+            res.output = "stopped"
+        return res
+
+    monkeypatch.setattr(harness, "decide", fake_decide)
+    landed, _ = writeback.land(writeback.PendingWrite("sess", "main", "call_1", "x"),
+                               lambda p: p.tool_call_id == "call_1")
+    assert not landed
+    assert calls == [("call_1", True), ("call_2", False)]

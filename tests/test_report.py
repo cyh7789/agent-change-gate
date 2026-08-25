@@ -88,11 +88,42 @@ def test_token_ratio_comes_from_the_batch_metrics():
     assert Comparison(s, base, cand).summary()["token_ratio"] == 1.5
 
 
-def test_a_scenario_with_no_output_reports_why():
+def _broken_arm(label, sid, error, n=3):
+    arm = ArmResult(label, label)
+    arm.runs = [ScenarioRun(sid, None, error) for _ in range(n)]
+    arm.batches = [{"total_tokens": 10}]
+    return arm
+
+
+def test_a_batch_that_never_ran_is_incomplete_not_a_regression():
+    """harness 掛掉、核准閘攔下、subagent 沒接題，都不是模型答錯。
+
+    算成 broken 的話，一次基礎設施故障就會變成「這個變更造成 16 個退步」。
+    """
     s = _set("a")
     base = _arm("baseline", {"a": ["bug"] * 3})
-    cand = ArmResult("candidate", "candidate")
-    cand.runs = [ScenarioRun("a", None, "no subagent returned an answer for this item")] * 3
-    cand.batches = [{"total_tokens": 10}]
+    cand = _broken_arm("candidate", "a", "503 from the harness")
     row = next(r for r in Comparison(s, base, cand).rows() if r["id"] == "a")
-    assert row["delta"] == "broken" and "no output" in row["why"]
+    assert row["delta"] == "incomplete"
+    assert "503" in row["why"]
+
+
+def test_an_incomplete_scenario_does_not_become_a_regression_verdict():
+    s = _set("a", "b")
+    base = _arm("baseline", {"a": ["bug"] * 3, "b": ["bug"] * 3})
+    cand = _arm("candidate", {"b": ["bug"] * 3})
+    cand.runs += [ScenarioRun("a", None, "503 from the harness") for _ in range(3)]
+    c = Comparison(s, base, cand)
+    assert c.summary()["incomplete"] == 1
+    assert c.summary()["broken"] == 0
+    assert c.verdict() == "incomplete"
+
+
+def test_partial_failures_do_not_deflate_the_pass_rate():
+    """三次裡有一次是基礎設施錯，分母要是 2，不是 3。"""
+    s = _set("a")
+    base = _arm("baseline", {"a": ["bug"] * 3})
+    cand = _arm("candidate", {"a": ["bug", "bug"]})
+    cand.runs.append(ScenarioRun("a", None, "connection reset"))
+    row = next(r for r in Comparison(s, base, cand).rows() if r["id"] == "a")
+    assert row["candidate"] == "2/2" and row["delta"] == "same"
