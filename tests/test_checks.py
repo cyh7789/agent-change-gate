@@ -1,4 +1,6 @@
 """判定邏輯的行為測試：它決定比較表上的每一個數字。"""
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

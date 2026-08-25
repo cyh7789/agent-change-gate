@@ -5,6 +5,8 @@
   2. 協調者漏發某一題時，那題要記成錯誤，不能靜悄悄變成「沒通過」
   3. 受測 spec 的 instructions 要原封不動傳給 subagent，否則量到的不是它
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

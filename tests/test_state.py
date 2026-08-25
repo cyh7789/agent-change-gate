@@ -2,6 +2,8 @@
 
 按鈕沒接上或事件沒清乾淨的話，畫面看起來還是「等核准」，實際上工具已經放行了。
 """
+from __future__ import annotations
+
 import sys
 import threading
 from pathlib import Path

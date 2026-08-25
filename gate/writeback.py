@@ -12,6 +12,12 @@ from typing import Callable
 
 from . import harness
 
+# 開分支、寫檔、開 PR 就是全部。GitHub MCP 給的是 44 個工具，預設 `@all` 會讓這個
+# agent 看到全部；核准閘擋得住寫入，但擋不住「它本來就不該看見那些工具」。
+# 核准是第二道界線，不是第一道。
+WRITEBACK_TOOLS = ["create_branch", "create_or_update_file", "push_files",
+                   "create_pull_request"]
+
 WRITEBACK_AGENT = {
     "model": {"name": "google-gemini/gemini-3-1-pro-preview"},
     "instructions": (
@@ -19,7 +25,9 @@ WRITEBACK_AGENT = {
         "Create a branch, commit the new spec file, then open a pull request whose body is "
         "exactly the report you are given. Do not edit the report. Do not merge anything."
     ),
-    "mcp_servers": [{"name": "github"}],   # require_approval_for_tools 預設 @write/@destructive
+    # require_approval_for_tools 刻意不設：TrueForge 出廠就是 ["@write", "@destructive"]，
+    # 而 GitHub MCP 自己把這些呼叫標成 write。攔下它們的不是這份設定，是那個預設。
+    "mcp_servers": [{"name": "github", "enable_tools": WRITEBACK_TOOLS}],
     "config": {"iteration_limit": 25},
 }
 

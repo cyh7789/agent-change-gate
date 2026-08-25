@@ -1,4 +1,6 @@
 """情境集完整性的行為測試：量尺被動過就必須拒跑。"""
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
