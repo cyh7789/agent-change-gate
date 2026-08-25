@@ -167,6 +167,39 @@ probe/              standalone scripts that verify the harness capabilities used
 
 `python3 -m pytest tests -q`
 
+## Qodo code review evidence
+
+Qodo reviewed every pull request in this repository and raised **23 findings** across
+#1, #3, #5, #6, #9 and #10. All of them were read; the per-finding disposition, including
+the two judged not to be defects and why, is the comment on
+[#10](https://github.com/cyh7789/agent-change-gate/pull/10).
+
+Three were security issues, and all three were real:
+
+| finding | what it meant |
+|---|---|
+| Credentials leak through argv | `ps` showed the Gemini API key to every user on the machine |
+| Unauthenticated approval endpoint | binding to localhost keeps other machines out, not other processes, and that endpoint releases irreversible actions |
+| Unescaped HTML injection | tool summaries, failure reasons and the sandbox's own analysis are model-written and went into `innerHTML` |
+
+The one worth reading is the approval deadlock. `ask()` published the pending call, released
+the lock, then cleared the event, so a decision landing in that window was erased and the
+evaluation thread waited forever. In a demo that is a console frozen on "awaiting approval"
+with no way to unfreeze it. It is closed structurally, under one `Condition`, and **no test
+pins it**: the window is a few instructions wide and 200 paired rounds never reproduced it
+against the old code. A test that passes on both versions would be worse than the admission.
+
+Qodo also flagged "subagents recursively fan out" early, from a premise that turned out to be
+wrong. Subagents inherit nothing at all, which is worse, and reading that review sooner would
+have found it hours earlier.
+
+Two of the fixes came with their own mistake, which is the honest part of the trail:
+recovering an abandoned turn first took `data[0]` from the turn listing, and that listing is
+oldest-first. The test written alongside it had a single-element list, so it could not have
+caught the error. Qodo's follow-up then pointed out that even the newest turn is the wrong
+answer, because nothing tied it to the turn being recovered; it now matches on the input the
+turn records.
+
 ## AI assistance
 
 Written with Claude Code (rule 11). The design decisions, the measurements behind
