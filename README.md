@@ -31,7 +31,7 @@ The gate is not a script that calls an LLM API. The harness does the work:
 
 | | |
 |---|---|
-| **Subagents** | Scenarios are handed out in batches; the coordinator gives **each scenario to its own subagent**, inheriting the spec under test. Fan-out, scheduling and context isolation are the harness's job, not a thread pool's. |
+| **Subagents** | Scenarios are handed out in batches; the coordinator gives **each scenario to its own subagent**. Fan-out, scheduling and context isolation are the harness's job, not a thread pool's. |
 | **Code Mode** | The statistical read of the results (Wilson intervals, per-scenario stability) is **code the agent writes and runs in its sandbox**. The verdict is not: that stays in deterministic Python, so the same outputs always score the same. |
 | **Real tools via MCP** | Landing the change goes through the GitHub MCP server: branch, commit, pull request. No REST calls behind the harness's back. |
 | **Human approval** | Because the write goes through a tool, `require_approval_for_tools: ["@write", "@destructive"]` catches it. The run pauses, prints the report, and waits. |
@@ -42,6 +42,14 @@ as an HTTP endpoint. Handing the batch to subagents is the harness doing the wor
 The mapping from answer back to scenario goes through the thread id and an item
 marker. Subagents finish in a different order than they were spawned, and pairing
 them by order silently attaches answers to the wrong scenarios.
+
+**Subagents do not inherit the parent agent's instructions.** Measured, not
+assumed: a spec whose instructions demand the token `ZX9QQ` at the end of every
+reply produced it only in the coordinator's own output, never in either
+subagent's. An earlier version of this code took that inheritance for granted and
+compared two specs with neither of them in effect. The spec under test now travels
+with each item, and the coordinator carries dispatch rules only, so it cannot
+answer under the spec itself. `probe/fanout.py` re-runs the fingerprint check.
 
 ## What it says about a real change
 
