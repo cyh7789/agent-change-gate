@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo")
     ap.add_argument("--branch", default="change-gate/candidate")
     ap.add_argument("--batch-size", type=int, default=4)
-    ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--repeat", type=int, default=5)
     ap.add_argument("--no-analysis", action="store_true")
     ap.add_argument("--port", type=int, default=8791)
     ap.add_argument("--no-open", action="store_true")

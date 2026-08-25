@@ -67,9 +67,10 @@ def test_a_scenario_unstable_in_one_arm_is_flaky_not_broken():
 
 
 def test_consistently_failing_candidate_is_broken():
+    # 五次而非三次：三次重複最強只能做到 p=0.1，撐不起 broken 的宣告。
     sc = _set("s1")
-    base = _arm("b", {"s1": ["bug", "bug", "bug"]})
-    cand = _arm("c", {"s1": ["feature-request"] * 3})
+    base = _arm("b", {"s1": ["bug"] * 5})
+    cand = _arm("c", {"s1": ["feature-request"] * 5})
     c = Comparison(sc, base, cand)
     assert c.rows()[0]["delta"] == "broken"
     assert c.verdict() == "regression"
@@ -77,8 +78,8 @@ def test_consistently_failing_candidate_is_broken():
 
 def test_consistently_fixed_candidate_is_improvement():
     sc = _set("s1")
-    base = _arm("b", {"s1": ["feature-request"] * 3})
-    cand = _arm("c", {"s1": ["bug"] * 3})
+    base = _arm("b", {"s1": ["feature-request"] * 5})
+    cand = _arm("c", {"s1": ["bug"] * 5})
     c = Comparison(sc, base, cand)
     assert c.rows()[0]["delta"] == "fixed"
     assert c.verdict() == "improvement"
