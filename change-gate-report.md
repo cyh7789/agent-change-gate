@@ -1,45 +1,34 @@
 ## Change Gate report
 
-**Verdict: no change outside noise.** 0 fixed, 0 broken, 1 flaky (unstable in at least one arm, not attributed to the change). Token cost 1.01× of baseline.
+**Verdict: no change outside noise.** 0 fixed, 0 broken, 0 flaky (unstable in at least one arm, not attributed to the change). Token cost 0.98× of baseline.
 
-Every scenario ran 3× per arm, because the model is not deterministic: a scenario that passes once and fails once tells you nothing about the change.
+Every scenario ran 1× per arm, because the model is not deterministic: a scenario that passes once and fails once tells you nothing about the change.
 
 | | baseline | candidate |
 |---|---|---|
-| passed | 43/48 (90%) | 42/48 (88%) |
-| total tokens | 188,675 | 190,430 |
+| passed | 14/16 (88%) | 14/16 (88%) |
+| total tokens | 65,995 | 64,766 |
 
 ### Per scenario
 
 | scenario | baseline | candidate | change | why |
 |---|---|---|---|---|
-| `issue-331072` | 3/3 | 3/3 | same |  |
-| `issue-331125` | 3/3 | 3/3 | same |  |
-| `issue-331272` | 3/3 | 3/3 | same |  |
-| `issue-331291` | 0/3 | 0/3 | same | expected 'feature-request', got 'bug' |
-| `issue-331350` | 3/3 | 3/3 | same |  |
-| `issue-331367` | 3/3 | 3/3 | same |  |
-| `issue-331368` | 3/3 | 3/3 | same |  |
-| `issue-331374` | 3/3 | 3/3 | same |  |
-| `issue-331980` | 3/3 | 3/3 | same |  |
-| `issue-331988` | 3/3 | 3/3 | same |  |
-| `issue-332051` | 3/3 | 3/3 | same |  |
-| `issue-332070` | 3/3 | 3/3 | same |  |
-| `issue-332082` | 1/3 | 0/3 | flaky | expected 'bug', got 'feature-request' |
-| `issue-332115` | 3/3 | 3/3 | same |  |
-| `issue-332124` | 3/3 | 3/3 | same |  |
-| `issue-332167` | 3/3 | 3/3 | same |  |
-
-### Statistical read
-
-Across the 16 evaluation scenarios (48 total trials per arm), the baseline achieved 43 total passes (89.58% pass rate, 95% Wilson score interval: [0.7783, 0.9547]), while the candidate achieved 42 total passes (87.50% pass rate, 95% Wilson score interval: [0.7530, 0.9414]). The two 95% Wilson score intervals overlap significantly, indicating no statistically meaningful performance difference between the arms overall. Furthermore, there are zero scenarios where the baseline and candidate differ by more than one repeat—15 of the 16 scenarios produced identical pass counts (14 with 3/3 passes and 1 with 0/3 passes), with the only difference occurring in scenario `issue-332082` (1 pass for baseline vs. 0 passes for candidate).
-
-| Arm | Total Passes / Total Trials | Pass Rate | Wilson 95% Score Interval |
-| :--- | :---: | :---: | :---: |
-| Baseline | 43 / 48 | 89.58% | [0.7783, 0.9547] |
-| Candidate | 42 / 48 | 87.50% | [0.7530, 0.9414] |
-
-_Computed by code the agent wrote and ran in its sandbox, from the pass counts above. The verdict itself is not: it comes from the deterministic checks, so the same outputs always score the same._
+| `issue-331072` | 1/1 | 1/1 | same |  |
+| `issue-331125` | 1/1 | 1/1 | same |  |
+| `issue-331272` | 1/1 | 1/1 | same |  |
+| `issue-331291` | 0/1 | 0/1 | same | expected 'feature-request', got 'bug' |
+| `issue-331350` | 1/1 | 1/1 | same |  |
+| `issue-331367` | 1/1 | 1/1 | same |  |
+| `issue-331368` | 1/1 | 1/1 | same |  |
+| `issue-331374` | 1/1 | 1/1 | same |  |
+| `issue-331980` | 1/1 | 1/1 | same |  |
+| `issue-331988` | 1/1 | 1/1 | same |  |
+| `issue-332051` | 1/1 | 1/1 | same |  |
+| `issue-332070` | 1/1 | 1/1 | same |  |
+| `issue-332082` | 0/1 | 0/1 | same | expected 'bug', got 'feature-request' |
+| `issue-332115` | 1/1 | 1/1 | same |  |
+| `issue-332124` | 1/1 | 1/1 | same |  |
+| `issue-332167` | 1/1 | 1/1 | same |  |
 
 ### Measuring stick
 
