@@ -1,0 +1,116 @@
+"""TrueForge harness 的 HTTP 介面。
+
+只包住我們用得到的四件事：建 agent、開 session、跑 turn、續接被中斷的 turn。
+turn 端點回的是 SSE，不是 JSON —— 事件逐筆帶單調遞增的 sequence id，
+續接時把最後看到的 id 當 exclusive cursor 傳回去，harness 會從那之後重放。
+"""
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from typing import Iterator
+
+BASE = "http://localhost:8790/api/v1"
+
+
+class HarnessError(RuntimeError):
+    pass
+
+
+@dataclass
+class Event:
+    seq: int | None
+    type: str
+    data: dict
+
+
+@dataclass
+class TurnResult:
+    events: list[Event] = field(default_factory=list)
+    output: str | None = None
+    metrics: dict = field(default_factory=dict)
+    pending_approval: dict | None = None
+
+    @property
+    def last_seq(self) -> int | None:
+        for e in reversed(self.events):
+            if e.seq is not None:
+                return e.seq
+        return None
+
+
+def _request(path: str, body: dict | None = None, method: str | None = None):
+    req = urllib.request.Request(
+        BASE + path,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        raise HarnessError(f"{e.code} {path}: {e.read().decode()[:300]}") from e
+
+
+def create_agent(name: str, manifest: dict) -> str:
+    return _request("/agents", {"name": name, "manifest": manifest})["data"]["id"]
+
+
+def create_session(agent_name: str) -> str:
+    return _request("/sessions", {"agent": {"name": agent_name}})["data"]["id"]
+
+
+def _stream(url: str, body: dict | None) -> Iterator[Event]:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json"},
+    )
+    seq = None
+    with urllib.request.urlopen(req, timeout=1800) as r:
+        for raw in r:
+            line = raw.decode(errors="replace").strip()
+            if line.startswith("id: "):
+                seq = int(line[4:])
+                continue
+            if not line.startswith("data: "):
+                continue
+            payload = json.loads(line[6:])
+            yield Event(seq=seq, type=payload.get("type", ""), data=payload)
+
+
+def _consume(events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
+    # 完成事件是 `turn.done`（不是 turn.completed）。實測 SSE 事件名，別照猜的寫。
+    out = TurnResult()
+    for ev in events:
+        out.events.append(ev)
+        if ev.type == "tool.approval_required" and stop_at_approval:
+            out.pending_approval = ev.data
+            break
+        if ev.type in ("turn.done", "turn.failed"):
+            state = ev.data.get("state") or {}
+            out.output = ((state.get("output") or {}).get("content")) or None
+            out.metrics = state.get("metrics") or {}
+            break
+    return out
+
+
+def run_turn(session_id: str, message: str, stop_at_approval: bool = True) -> TurnResult:
+    body = {"input": [{"type": "user.message", "content": message}]}
+    return _consume(_stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval)
+
+
+def resume_turn(session_id: str, turn_id: str, after_seq: int) -> TurnResult:
+    """從斷點續接。after_seq 是 exclusive：只重放編號更大的事件。"""
+    url = f"{BASE}/sessions/{session_id}/turns/{turn_id}/subscribe?after_sequence_number={after_seq}"
+    return _consume(_stream(url, None), stop_at_approval=True)
+
+
+def decide(session_id: str, thread_id: str, tool_call_id: str, allow: bool, reason: str = "") -> TurnResult:
+    approval = {"status": "allow"} if allow else {"status": "deny", "reason": reason}
+    body = {"input": [{"type": "user.tool_approval", "thread_id": thread_id,
+                       "tool_call_id": tool_call_id, "approval": approval}]}
+    return _consume(_stream(f"{BASE}/sessions/{session_id}/turns", body), stop_at_approval=False)
