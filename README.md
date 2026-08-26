@@ -258,10 +258,13 @@ Qodo raised **28 findings** across #1, #3, #5, #6, #8, #9, #10, #11 and #13 — 
 request it reviewed. All of them were read; the per-finding disposition, including the two
 judged not to be defects and why, is the comment on
 [#10](https://github.com/cyh7789/agent-change-gate/pull/10), and every finding also carries
-its own reply on the thread it was raised in. From #14 on, Qodo's reviews are paused on this
-account, so #14 through #24 carry its "reviews are paused" notice instead of a review. Those
-pull requests are the video, the console styling and the documentation re-seal; the gate's
-own code was reviewed.
+its own reply on the thread it was raised in.
+
+Qodo's reviews are paused on this account. From #14 onward every pull request carries its
+"reviews are paused" notice instead of a review, and that includes production-code changes:
+#19 and #20 touch `gate/harness.py` and `gate/writeback.py`, #21 touches `gate/state.py` and
+`gate/web.py`, #22 touches `gate/web.py`. Those changes were not Qodo-reviewed. The notices
+are still on the pull requests.
 
 Four were security issues, and all four were real:
 
