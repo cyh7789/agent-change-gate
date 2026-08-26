@@ -83,14 +83,36 @@ PAGE = """<!doctype html>
  .step.now  { color:var(--ink); border-color:var(--blue); background:#16203a; }
  .step.wait { color:var(--amber); border-color:#3d3117; background:#211a09; }
  .step.bad  { color:var(--red); border-color:#3d1f1f; background:#210d0d; }
- .bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin:14px 0 6px; }
- .bar > div { height:100%; background:var(--blue); width:0; transition:width .35s ease; }
- .runline { color:var(--dim); font-size:13px; }
+ /* 評測要跑二十分鐘。細線加低色差的話，畫面看起來是靜止的，
+    而這一段的重點正是「它在做事」。條子加高、加軌道、加會動的斜紋，
+    數字三十秒不變的時候也看得出還在跑。 */
+ .bar { height:10px; background:#1b1f2c; border:1px solid var(--line); border-radius:6px;
+        overflow:hidden; margin:16px 0 8px; }
+ .bar > div { height:100%; width:0; border-radius:5px; transition:width .4s ease;
+              background:linear-gradient(90deg, #3f6fd8, var(--blue));
+              box-shadow:0 0 14px rgba(91,140,255,.55); position:relative; }
+ .bar > div::after { content:""; position:absolute; inset:0; border-radius:5px;
+   background:repeating-linear-gradient(115deg, rgba(255,255,255,.16) 0 12px,
+                                        transparent 12px 26px);
+   animation:crawl 1.1s linear infinite; }
+ .bar.done > div::after { display:none; }   /* 跑完就別再裝作在動 */
+ @keyframes crawl { to { background-position:26px 0; } }
+ .runline { color:var(--dim); font-size:13px; display:flex; gap:10px; align-items:baseline; }
+ .runline b { color:var(--ink); font-weight:600; font-size:15px;
+              font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+ .runline .arm { color:var(--blue); }
 
  /* 判決當主角：大字、依結果換色，底下一句話說它為什麼是這個結果 */
  .verdict { margin:26px 0 4px; }
  .verdict .v { font-size:30px; font-weight:650; letter-spacing:-.02em; }
  .verdict .why { color:var(--dim); font-size:14px; margin-top:6px; }
+ /* 評測期間主角是進度：數字大到跟判決同一個份量，畫面才有東西在動。
+    跑完數字換成判決，版位不變。 */
+ .verdict .count { font-size:52px; font-weight:680; letter-spacing:-.03em;
+                   font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+                   line-height:1.05; }
+ .verdict .count i { font-style:normal; color:#4a5169; }
+ .verdict .count u { text-decoration:none; color:var(--blue); }
  .v-noise { color:var(--ink); } .v-improve { color:var(--green); }
  .v-regress { color:var(--red); }
 
@@ -132,6 +154,10 @@ PAGE = """<!doctype html>
                  text-transform:uppercase; letter-spacing:.05em; }
  .dot { width:8px; height:8px; border-radius:50%; background:#232838; }
  .dot.pass { background:var(--green); } .dot.fail { background:var(--red); }
+ .dot.fresh { animation:pop .55s ease-out; }
+ @keyframes pop { 0% { transform:scale(.4); box-shadow:0 0 0 0 rgba(63,179,127,.8); }
+                  60% { transform:scale(1.5); }
+                  100% { transform:scale(1); box-shadow:0 0 0 9px rgba(63,179,127,0); } }
  table.rows { border-collapse:collapse; width:100%; margin-top:10px; font-size:13px; }
  table.rows th, table.rows td { text-align:left; padding:6px 12px 6px 0; border-bottom:1px solid #1a1e2c; }
  table.rows th { color:var(--dim); font-weight:normal; font-size:11px;
@@ -156,11 +182,11 @@ PAGE = """<!doctype html>
 <main>
   <header><h1 id="phasehead">starting</h1><span class="repo" id="repo"></span></header>
   <div class="steps" id="steps"></div>
-  <div class="bar"><div id="fill"></div></div>
-  <div class="runline" id="progress"></div>
   <div class="params" id="params"></div>
   <div id="gate"></div>
   <div id="verdict" class="verdict"></div>
+  <div class="bar" id="bar"><div id="fill"></div></div>
+  <div class="runline" id="progress"></div>
   <div class="cards" id="cards"></div>
   <div class="live" id="live"></div>
   <div id="table"></div>
@@ -211,7 +237,13 @@ function steps(s) {
 
 // 判決的字自己帶原因，旁邊那句話說它是怎麼算出來的
 function verdict(s) {
-  if (!s.verdict) return '';
+  if (!s.verdict) {
+    if (!s.runs_total) return '';
+    const pct = Math.round(100 * s.runs_done / s.runs_total);
+    return `<div class="count"><u>${s.runs_done}</u><i> / ${s.runs_total}</i></div>
+            <div class="why">scenario runs, one subagent each · ${pct}% done`
+         + (s.arm ? ` · running the ${esc(s.arm)} spec` : '') + `</div>`;
+  }
   const m = s.summary || {};
   const tone = s.verdict.includes('improvement') ? 'v-improve'
              : s.verdict.includes('regress') || s.verdict.includes('broke') ? 'v-regress' : 'v-noise';
@@ -316,18 +348,29 @@ async function copyReport() {
 
 // 評測跑十幾分鐘，這段時間畫面上只有進度列的話等於空的。
 // 一題一格、每跑完一次點一顆，扇出在動這件事就看得見。
+let seen = {};   // 上一次每一格已經有幾顆，用來認出這一輪新長出來的那些
 function live(s) {
   if (s.verdict || !Object.keys(s.live || {}).length) return '';
   const slots = s.repeats || 1;
-  return Object.keys(s.live).sort().map(id => {
+  const next = {};
+  const html = Object.keys(s.live).sort().map(id => {
     const arms = ['baseline', 'candidate'].map(arm => {
       const got = (s.live[id] || {})[arm] || [];
-      const dots = Array.from({length: slots}, (_, i) =>
-        `<span class="dot ${i < got.length ? (got[i] ? 'pass' : 'fail') : ''}"></span>`).join('');
+      const key = id + '|' + arm;
+      const before = seen[key] || 0;
+      next[key] = got.length;
+      const dots = Array.from({length: slots}, (_, i) => {
+        if (i >= got.length) return '<span class="dot"></span>';
+        // 只有這一輪才出現的那幾顆閃：每秒重畫一次，全部都閃的話等於沒閃
+        const fresh = i >= before ? ' fresh' : '';
+        return `<span class="dot ${got[i] ? 'pass' : 'fail'}${fresh}"></span>`;
+      }).join('');
       return `<div class="arm"><em>${arm}</em>${dots}</div>`;
     }).join('');
     return `<div class="cell"><div class="id mono">${esc(id)}</div>${arms}</div>`;
   }).join('');
+  seen = next;
+  return html;
 }
 
 async function tick() {
@@ -346,9 +389,9 @@ async function tick() {
     ? `<span class="step bad">${esc(s.phase)}: ${esc(s.error)}</span>` : steps(s);
   const pct = s.runs_total ? Math.round(100 * s.runs_done / s.runs_total) : 0;
   $('fill').style.width = pct + '%';
-  $('progress').textContent = s.runs_total
-    ? `${s.runs_done} / ${s.runs_total} scenario runs · one subagent each`
-    : '';
+  $('bar').className = 'bar' + (pct >= 100 ? ' done' : '');
+  $('progress').innerHTML = s.verdict && s.runs_total
+    ? `<span>${s.runs_done} / ${s.runs_total} scenario runs · one subagent each</span>` : '';
   $('gate').innerHTML = gate(s);
   $('verdict').innerHTML = verdict(s);
   const sm = s.summary || {};
