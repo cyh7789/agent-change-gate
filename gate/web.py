@@ -280,7 +280,7 @@ function gate(s) {
       ${checklist(s)}</div>`;
   }
   if (s.result) {
-    return `<div class="landed">${esc(s.result).replace(/(https?:\/\/\S+)/,
+    return `<div class="landed">${esc(s.result).replace(/(https?:\\/\\/\\S+)/,
               '<a href="$1" target="_blank">$1</a>')}</div>`;
   }
   return (s.decided||[]).length ? `<div class="gate">${checklist(s)}</div>` : '';
