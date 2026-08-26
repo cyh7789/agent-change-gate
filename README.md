@@ -71,21 +71,23 @@ answer under the spec itself. `probe/fanout.py` re-runs the fingerprint check.
 The candidate spec spells out the classification criteria the baseline leaves
 implicit, the kind of edit nobody would think to test. Five runs per scenario,
 16 scenarios, both specs. The whole report is
-[PR #14](https://github.com/cyh7789/agent-change-gate/pull/14), opened by the gate
+[PR #23](https://github.com/cyh7789/agent-change-gate/pull/23), opened by the gate
 itself, and the video shows this run being made:
 
 ```
 Verdict: no change outside noise. 0 fixed, 0 broken, 1 flaky, 0 unproven, 0 incomplete.
-Token cost 1.09x of baseline.
+Token cost 1.02x of baseline.
 
-passed        baseline 70/80 (88%)    candidate 74/80 (92%)
-tokens        baseline 293,692        candidate 321,155
-issue-332082  baseline 0/5            candidate 4/5            flaky
+passed        baseline 71/80 (89%)    candidate 74/80 (92%)
+tokens        baseline 312,661        candidate 317,791
+issue-332082  baseline 1/5            candidate 4/5            flaky
 ```
 
-Read it as a decision rather than a scoreboard: the change costs 9% more tokens
-on every run, and the only scenario that moved at all is one neither spec answers
-consistently. There is nothing here to pay 9% for.
+Read it as a decision rather than a scoreboard: the only scenario that moved at all
+is one neither spec answers consistently, and the change costs more rather than less.
+How much more is itself unstable — 1.02x here, 1.08x and 1.09x on two other five-repeat
+runs of the same two specs. What holds across all of them is the direction and the
+verdict; the single-run report claimed the opposite of both.
 
 That one scenario is also the argument for running each spec more than once, and
 the repository has both readings side by side. [PR #8](https://github.com/cyh7789/agent-change-gate/pull/8)
@@ -96,8 +98,8 @@ Verdict: improvement. 1 fixed, 0 broken, 0 flaky. Token cost 0.94x of baseline.
 ```
 
 Same two specs, same 16 scenarios. One run per arm: an improvement that also saves
-6% tokens. Five runs per arm: a coin flip that costs 9% more. The single run got
-both the direction and the sign of the cost wrong, and nothing about that report
+6% tokens. Five runs per arm: a coin flip that costs more, not less. The single run
+got both the direction and the sign of the cost wrong, and nothing about that report
 looks uncertain.
 
 ## Why the default is five, not three
