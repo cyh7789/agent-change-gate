@@ -24,7 +24,9 @@ from . import analysis, report, runner, writeback
 from .scenarios import load
 from .state import GateState
 
-PAGE = """<!doctype html>
+# raw string：裡面整段是 HTML 與 JS，反斜線要原樣送到瀏覽器。非 raw 的話
+# JS 正則的 \/ 會被 Python 3.12+ 判成無效跳脫，3.15 起是 SyntaxError。
+PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Agent Change Gate</title>
 <style>
  /* 版面照這類工具的慣例：一列有名字的階段、判決當主角、細節預設收起來、
@@ -280,7 +282,7 @@ function gate(s) {
       ${checklist(s)}</div>`;
   }
   if (s.result) {
-    return `<div class="landed">${esc(s.result).replace(/(https?:\\/\\/\\S+)/,
+    return `<div class="landed">${esc(s.result).replace(/(https?:\/\/\S+)/,
               '<a href="$1" target="_blank">$1</a>')}</div>`;
   }
   return (s.decided||[]).length ? `<div class="gate">${checklist(s)}</div>` : '';
