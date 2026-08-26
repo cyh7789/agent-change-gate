@@ -295,7 +295,7 @@ turn records.
 
 ## AI assistance
 
-Written with Claude Code (rule 11). The design decisions, the measurements behind
+Written with Claude Code, as the hackathon rules require. The design decisions, the measurements behind
 them, and the review of every line are the author's.
 
 ## License
