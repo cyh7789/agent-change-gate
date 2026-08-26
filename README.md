@@ -273,7 +273,7 @@ Four were security issues, and all four were real:
 | Credentials leak through argv | `ps` showed the Gemini API key to every user on the machine |
 | Unauthenticated approval endpoint | binding to localhost keeps other machines out, not other processes, and that endpoint releases writes to GitHub |
 | Unescaped HTML injection | tool summaries, failure reasons and the sandbox's own analysis are model-written and went into `innerHTML` |
-| Writeback agent reuse risk | a fixed agent name silently adopted an existing agent, inheriting whatever `require_approval_for_tools` it had been created with — the one setting the whole gate rests on |
+| Writeback agent reuse risk | a fixed agent name silently adopted an existing agent, inheriting whatever `require_approval_for_tools` it had been created with. That is the one setting the whole gate rests on |
 
 The one worth reading is the approval deadlock. `ask()` published the pending call, released
 the lock, then cleared the event, so a decision landing in that window was erased and the
