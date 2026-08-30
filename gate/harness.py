@@ -106,6 +106,10 @@ def _request(path: str, body: dict | None = None, method: str | None = None):
             return json.load(r)
     except urllib.error.HTTPError as e:
         raise HarnessError(f"{e.code} {path}: {e.read().decode()[:300]}") from e
+    except DROPPED as e:
+        # 呼叫端的 `except HarnessError` 是它們「拿不到就回 None」的防護。掉線走
+        # URLError 的話那道防護整個跳過去，查一次工具名稱就能讓核准閘炸掉。
+        raise HarnessError(f"{path}: {e}") from e
 
 
 def create_agent(name: str, manifest: dict) -> str:
