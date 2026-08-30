@@ -1,8 +1,9 @@
-"""比較表的行為測試。
+"""Behaviour tests for the comparison.
 
-咬的是這份報表存在的理由：把雜訊跟真的退步分開。同一份 spec 對同一組情境連跑
-三次是 15/16、14/16、14/16，其中 issue-332082 給出 pass/fail/fail。單看一次
-就會把那一題報成變更造成的退步。
+These bite on the reason the report exists: separating noise from a real regression. The same
+spec over the same scenarios three times running gave 15/16, 14/16, 14/16, with issue-332082
+answering pass/fail/fail. A single run reports that scenario as a regression caused by the
+change.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ def _set(*ids):
 
 
 def _arm(label, answers):
-    """answers: {scenario_id: [每次跑的輸出]}"""
+    """answers: {scenario_id: [output of each run]}"""
     arm = ArmResult(label=label, agent_name=label)
     for sid, outs in answers.items():
         for o in outs:
@@ -52,7 +53,7 @@ def test_a_scenario_unstable_in_the_baseline_is_also_flaky():
 
 
 def test_consistently_lost_is_broken():
-    # 五次：三次重複的差異過不了檢定，見 test_significance.py
+    # Five repeats: a three-repeat difference never clears the test, see test_significance.py
     s = _set("a")
     base = _arm("baseline", {"a": ["bug"] * 5})
     cand = _arm("candidate", {"a": ["feature-request"] * 5})
@@ -99,9 +100,9 @@ def _broken_arm(label, sid, error, n=3):
 
 
 def test_a_batch_that_never_ran_is_incomplete_not_a_regression():
-    """harness 掛掉、核准閘攔下、subagent 沒接題，都不是模型答錯。
+    """A harness outage, the gate catching the run, a subagent never receiving its item: none of these is a wrong answer.
 
-    算成 broken 的話，一次基礎設施故障就會變成「這個變更造成 16 個退步」。
+    Scored as broken, one infrastructure failure becomes "this change broke 16 scenarios".
     """
     s = _set("a")
     base = _arm("baseline", {"a": ["bug"] * 3})
@@ -123,7 +124,7 @@ def test_an_incomplete_scenario_does_not_become_a_regression_verdict():
 
 
 def test_partial_failures_do_not_deflate_the_pass_rate():
-    """三次裡有一次是基礎設施錯，分母要是 2，不是 3。"""
+    """With one of three runs lost to infrastructure, the denominator is 2, not 3."""
     s = _set("a")
     base = _arm("baseline", {"a": ["bug"] * 3})
     cand = _arm("candidate", {"a": ["bug", "bug"]})
@@ -133,7 +134,7 @@ def test_partial_failures_do_not_deflate_the_pass_rate():
 
 
 def test_a_pass_rate_with_no_scored_runs_is_not_zero_percent():
-    """一次都沒跑成的時候「0%」是謊；那是沒有資料，不是全錯。"""
+    """With no run completing, "0%" is a lie: that is no data, not everything wrong."""
     s = _set("a")
     base = _arm("baseline", {"a": ["bug"] * 3})
     cand = _broken_arm("candidate", "a", "503 from the harness")

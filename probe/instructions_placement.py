@@ -1,10 +1,11 @@
-"""受測規則放在 agent 的 instructions 欄位，跟放進題目文字裡，量到的是不是同一件事。
+"""Whether the rules in the agent's instructions field and the rules inside the item text measure the same thing.
 
-harness 的 dynamic subagent 帶不了自訂 instructions（AgentInfo 只有 name/input/model），
-所以扇出評測只能把規則寫進題目。實際部署時它是 system instructions。兩者若通過率不同，
-扇出就是拿效度換一個驗收點。
+The harness's dynamic subagents carry no custom instructions (AgentInfo is only
+name/input/model), so a fan-out evaluation has to put the rules in the item. In production
+they are system instructions. If the two produce different pass rates, the fan-out is trading
+validity for a checkbox.
 
-同一份 spec、同一組情境、各跑 N 次，逐題配對比較。
+Same spec, same scenarios, N runs each, compared pair by pair.
 """
 import json
 import os
@@ -24,7 +25,7 @@ INSTR = SPEC["instructions"]
 
 
 def as_system() -> dict[str, list[bool]]:
-    """每個情境自己的 session，規則放在 agent 的 instructions 欄位。"""
+    """One session per scenario, with the rules in the agent's instructions field."""
     name = f"placement-sys-{uuid.uuid4().hex[:6]}"
     harness.create_agent(name, SPEC)
     out = defaultdict(list)
@@ -37,7 +38,7 @@ def as_system() -> dict[str, list[bool]]:
 
 
 def in_the_prompt() -> dict[str, list[bool]]:
-    """扇出，規則跟著題目走。"""
+    """Fan out, with the rules travelling inside the item."""
     name = f"placement-prompt-{uuid.uuid4().hex[:6]}"
     harness.create_agent(name, runner.coordinator_manifest(SPEC))
     out = defaultdict(list)

@@ -1,8 +1,9 @@
-"""核准後把變更寫回 GitHub。
+"""Write an approved change back to GitHub.
 
-寫回這一步刻意交給 agent 帶 GitHub MCP 去做，而不是自己呼叫 REST API：
-harness 的核准閘是掛在工具呼叫上的，繞過工具就繞過了閘門。這裡要的正是
-那個暫停。人看完比較表才決定要不要讓這個變更落地。
+The write-back deliberately goes through an agent holding the GitHub MCP server rather
+than a direct REST call: the harness hangs its approval gate on tool calls, so bypassing
+the tool bypasses the gate. That pause is the point. A person reads the comparison table
+before the change is allowed to land.
 """
 from __future__ import annotations
 
@@ -12,9 +13,10 @@ from typing import Callable
 
 from . import harness
 
-# 開分支、寫檔、開 PR 就是全部。GitHub MCP 給的是 44 個工具，預設 `@all` 會讓這個
-# agent 看到全部；核准閘擋得住寫入，但擋不住「它本來就不該看見那些工具」。
-# 核准是第二道界線，不是第一道。
+# Branch, file, pull request is the whole job. The GitHub MCP server exposes 44 tools and
+# the `@all` default would hand this agent every one of them. The approval gate stops the
+# writes, but it cannot stop the agent seeing tools it had no business seeing.
+# Approval is the second boundary, not the first.
 WRITEBACK_TOOLS = ["create_branch", "create_or_update_file", "push_files",
                    "create_pull_request"]
 
@@ -25,8 +27,9 @@ WRITEBACK_AGENT = {
         "Create a branch, commit the new spec file, then open a pull request whose body is "
         "exactly the report you are given. Do not edit the report. Do not merge anything."
     ),
-    # require_approval_for_tools 刻意不設：TrueForge 出廠就是 ["@write", "@destructive"]，
-    # 而 GitHub MCP 自己把這些呼叫標成 write。攔下它們的不是這份設定，是那個預設。
+    # require_approval_for_tools is deliberately unset: TrueForge ships with
+    # ["@write", "@destructive"], and the GitHub MCP server is what annotates these calls as
+    # writes. What stops them is that default, not anything in this manifest.
     "mcp_servers": [{"name": "github", "enable_tools": WRITEBACK_TOOLS}],
     "config": {"iteration_limit": 25},
 }
@@ -37,11 +40,11 @@ class PendingWrite:
     session_id: str
     thread_id: str
     tool_call_id: str
-    call: dict          # {"tool", "server", "input"}；查不到工具名時 tool 是 None
+    call: dict          # {"tool", "server", "input"}; tool is None when the name cannot be resolved
 
     @property
     def tool_summary(self) -> str:
-        """一行版本，給不吃結構的呼叫端（CLI、log）。"""
+        """A one-line form for callers that cannot take the structure (CLI, logs)."""
         head = ".".join(p for p in (self.call.get("server"), self.call.get("tool")) if p)
         detail = ", ".join(f"{k}={v}" for k, v in (self.call.get("input") or {}).items())
         return f"{head}  {detail}".strip() or self.tool_call_id
@@ -49,7 +52,8 @@ class PendingWrite:
 
 def _pending(session_id: str, event: dict) -> PendingWrite:
     call = (event.get("tool_calls") or [{}])[0]
-    # 閘門上要看得出在核准什麼。事件本身只有 call id，工具名稱得回頭查。
+    # The gate has to show what is being approved. The event carries only a call id, so the
+    # tool name has to be looked up.
     described = harness.describe_call(session_id, call.get("source_event_id", ""),
                                       call.get("id", ""))
     return PendingWrite(session_id=session_id, thread_id=event.get("thread_id", "main"),
@@ -58,9 +62,10 @@ def _pending(session_id: str, event: dict) -> PendingWrite:
 
 
 def propose(repo: str, branch: str, path: str, content: str, title: str, report_md: str) -> PendingWrite | None:
-    """送出寫回請求，回傳停在核准閘的那一刻。None 代表 agent 沒有觸發任何需要核准的工具。"""
-    # 名字帶亂數：固定名字碰上既有的同名 agent 會沿用它的設定，而那份設定的
-    # require_approval_for_tools 可能是別人調過的，核准閘就這樣被繞過去。
+    """Send the write-back and return the moment it stops at the gate. None means the agent triggered no tool needing approval."""
+    # The random suffix matters: a fixed name that collides with an existing agent adopts
+    # that agent's manifest, whose require_approval_for_tools may have been changed by
+    # someone else. The gate would be bypassed with nothing to show for it.
     name = f"writeback-{uuid.uuid4().hex[:8]}"
     harness.create_agent(name, WRITEBACK_AGENT)
     sid = harness.create_session(name)
@@ -80,12 +85,13 @@ def propose(repo: str, branch: str, path: str, content: str, title: str, report_
 
 def land(pending: PendingWrite, ask: Callable[[PendingWrite], bool],
          reason: str = "Rejected at the change gate.") -> tuple[bool, str | None]:
-    """把寫回跑完，每一個要核准的工具都問過一次。
+    """Run the write-back to the end, asking once for every tool call that needs approval.
 
-    開分支、提交、開 PR 是三個工具呼叫，harness 會逐一停下來要核准；只回答第一個
-    的話，turn 會停在第二個上，GitHub 上留下一個沒有 PR 的分支。
+    Branch, commit and pull request are three tool calls and the harness stops at each one.
+    Answering only the first leaves the turn parked on the second, and GitHub holding a
+    branch with no pull request.
 
-    回傳 (是否全部核准, agent 的最後輸出)。任何一次拒絕就結束。
+    Returns (everything approved, the agent's final output). Any rejection ends it.
     """
     current = pending
     while True:

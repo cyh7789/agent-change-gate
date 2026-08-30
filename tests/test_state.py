@@ -1,6 +1,7 @@
-"""核准在介面上的行為：評測執行緒要真的停下來等人按。
+"""How approval behaves in the console: the evaluation thread really has to stop and wait.
 
-按鈕沒接上或事件沒清乾淨的話，畫面看起來還是「等核准」，實際上工具已經放行了。
+With the button unwired or the event left uncleared, the screen still says awaiting approval
+while the tool has already been released.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gate.state import GateState
 
 CALL = {"tool": "create_branch", "server": "github", "input": {"branch": "change-gate/x"}}
-PR_CALL = {"tool": "create_pull_request", "server": "github", "input": {"title": "spec change"}}  # 核准閘公布的是結構化的呼叫，不是一行字
+PR_CALL = {"tool": "create_pull_request", "server": "github", "input": {"title": "spec change"}}  # the gate publishes a structured call, not a line of text
 
 
 def test_ask_blocks_until_someone_decides():
@@ -22,7 +23,7 @@ def test_ask_blocks_until_someone_decides():
     t = threading.Thread(target=lambda: answers.append(st.ask(CALL)))
     t.start()
     t.join(0.2)
-    assert t.is_alive(), "評測執行緒必須停在核准閘前面"
+    assert t.is_alive(), "the evaluation thread has to stop in front of the gate"
     assert st.snapshot()["pending"] == CALL
 
     st.decide(True)
@@ -32,7 +33,7 @@ def test_ask_blocks_until_someone_decides():
 
 
 def test_a_second_call_waits_again_after_the_first_was_allowed():
-    """三個工具呼叫要停三次。事件沒清的話，第二次會直接沿用第一次的答案。"""
+    """Three tool calls stop three times. With the event uncleared, the second reuses the first answer."""
     st = GateState()
     answers = []
 
@@ -45,7 +46,7 @@ def test_a_second_call_waits_again_after_the_first_was_allowed():
     t.join(0.2)
     st.decide(True)
     t.join(0.2)
-    assert answers == [True], "第二次呼叫必須重新等人回答"
+    assert answers == [True], "the second call has to wait for its own answer"
     assert st.snapshot()["pending"] == PR_CALL
 
     st.decide(False)
@@ -75,10 +76,10 @@ def _states(st):
 
 
 def test_the_checklist_accepts_either_file_write_tool():
-    """提交那一步 agent 用過兩個不同的工具，兩個都要算。
+    """The agent has used two different tools for the commit, and both have to count.
 
-    實測：一次 create_or_update_file，下一次同樣的請求變成 push_files。只認一個
-    名字的話，人在畫面上會看到「還沒提交」，但它其實正等著他核准那一步。
+    Measured: create_or_update_file once, then push_files on the identical request. Recognising
+    only one name shows the reader "not committed yet" while that very step waits on them.
     """
     for tool in ("create_or_update_file", "push_files"):
         st = GateState()
@@ -102,7 +103,7 @@ def test_all_three_done_reads_as_done():
 
 
 def test_an_unknown_tool_does_not_tick_anything_off():
-    """核准閘上冒出沒見過的工具時，清單不能亂認一條。"""
+    """An unfamiliar tool at the gate must not be matched to a row it does not belong to."""
     st = GateState()
     st.update(pending={"tool": "delete_file", "server": "github", "input": {}})
     assert _states(st) == ["todo", "todo", "todo"]

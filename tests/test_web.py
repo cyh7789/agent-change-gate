@@ -1,7 +1,8 @@
-"""console 的兩件事：核准端點不是誰都能按，agent 寫的字不會變成這一頁的程式碼。
+"""Two things about the console: not everyone can press approve, and text written by an agent never becomes code on this page.
 
-綁在 127.0.0.1 只擋別台機器。這台機器上任何程式都能 POST /decide，而那個端點
-放行的是不可逆的動作，所以要帶只有拿得到頁面的人才有的 token。
+Binding to 127.0.0.1 only keeps other machines out. Anything on this machine can POST /decide,
+and that endpoint releases irreversible actions, so it takes a token only whoever can load the
+page has.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import pytest
 from gate import web
 from gate.state import GateState
 
-CALL = {"tool": "create_branch", "server": "github", "input": {"branch": "change-gate/x"}}  # 核准閘公布的是結構化的呼叫，不是一行字
+CALL = {"tool": "create_branch", "server": "github", "input": {"branch": "change-gate/x"}}  # the gate publishes a structured call, not a line of text
 
 TOKEN = "test-token"
 
@@ -65,7 +66,7 @@ def test_approving_without_the_token_is_refused(console):
 
     assert _decide(port, None) == 403
     assert _decide(port, "wrong-token") == 403
-    assert state.snapshot()["pending"] == CALL, "被拒絕的請求不能放行工具"
+    assert state.snapshot()["pending"] == CALL, "a rejected request must not release the tool"
     assert not answered.is_set()
 
     assert _decide(port, TOKEN) == 200
@@ -80,6 +81,7 @@ def test_the_page_carries_the_token_and_no_placeholder(console):
     assert "__TOKEN__" not in page
 
 
-# 跳脫本身沒有測試：它發生在瀏覽器裡，這套測試跑不到 DOM。頁面把 agent 寫的每個值
-# 都經過 esc() 之後才插進 innerHTML，人工驗證過；要自動化就得拉一個 headless 瀏覽器
-# 進來，那個代價換到的保護不成比例。
+# The escaping itself has no test: it happens in the browser and this suite never reaches the
+# DOM. Every agent-written value goes through esc() before touching innerHTML, verified by
+# hand. Automating it means pulling in a headless browser, which buys less protection than it
+# costs.

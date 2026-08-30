@@ -1,9 +1,10 @@
-"""扇出的兩件事，對真的 harness 驗：
+"""Two things about the fan-out, checked against the real harness:
 
-1. 每個題目確實開了自己的 subagent，答案能對回題目（thread 的完成順序跟建立
-   順序不同，所以對映不能靠順序）。
-2. 受測 spec 的規則確實到了 subagent 身上。這裡的規則要求每則回覆結尾加上一個
-   指紋 token；subagent 的輸出沒有它，就表示評測跑的不是那份 spec。
+1. Every item really gets its own subagent and its answer maps back to it. Threads finish in
+   a different order than they were created, so the mapping cannot go by position.
+2. The rules of the spec under test really reach the subagent. The rules here demand a
+   fingerprint token at the end of every reply; a subagent output without it means the
+   evaluation was not running that spec.
 """
 import json
 import pathlib

@@ -1,7 +1,9 @@
-"""對真的 harness 驗續接：讀幾個事件就把連線砍掉，看 run_turn 有沒有把 turn 補完。
+"""Check resume against the real harness: cut the connection after a few events and see whether run_turn completes the turn.
 
-斷線是包住 `_stream` 製造的（真實的網路斷線不好按需重現），但斷點之後的一切
-都是真的：turn 在伺服器那端繼續跑，續接走 subscribe 端點，sequence 由 harness 給。
+The drop is manufactured by wrapping `_stream`, since a real network failure is hard to
+reproduce on demand, but everything after the break is real: the turn keeps running
+server-side, resume goes through the subscribe endpoint, and the sequence comes from the
+harness.
 """
 import pathlib
 import sys

@@ -1,15 +1,19 @@
-"""把一批情境交給 harness 的 subagent 去跑，而不是自己開執行緒。
+"""Hand a batch of scenarios to the harness's subagents instead of running threads here.
 
-差別不只是誰在排程。用 Python 的執行緒池平行呼叫，harness 只是被當成 HTTP 端點；
-交給 subagent，扇出、排程、上下文隔離都是 harness 在做。
+The difference is not only who schedules the work. A Python thread pool calling in
+parallel reduces the harness to an HTTP endpoint; handing the items to subagents puts
+the fan-out, the scheduling and the context isolation in the harness.
 
-**subagent 不繼承父 agent 的 instructions**（實測：父 agent 的 instructions 要求每則
-回覆結尾加上一個指紋 token，只有協調者的輸出帶著它，兩個 subagent 都沒有）。所以
-受測 spec 的 instructions 必須跟著題目一起走，寫在每個 item 的文字裡；協調者只負責
-把 item 原文轉交，自己不帶受測規則，也就污染不了受測條件。
+**Subagents do not inherit the parent agent's instructions.** Measured: with the parent's
+instructions demanding a fingerprint token at the end of every reply, only the
+coordinator's output carried it and neither subagent did. So the spec under test travels
+with each item, written into the item's own text, and the coordinator forwards items
+verbatim without carrying any rules of its own, which is also why it cannot contaminate
+the thing being measured.
 
-對映走 thread_id 與 prompt 開頭的 marker：subagent 的完成順序跟建立順序不同，
-照順序配會把答案掛到錯的情境上。
+Answers are mapped back by thread_id plus a marker at the top of the prompt. Subagents
+finish in a different order than they were created, so matching by position attaches
+answers to the wrong scenarios.
 """
 from __future__ import annotations
 
@@ -42,16 +46,17 @@ class Handled:
 
 
 def batch_prompt(items: list[tuple[int, Scenario]], instructions: str) -> str:
-    """每個 item 自帶受測 spec 的 instructions，因為 subagent 繼承不到它們。"""
+    """Every item carries the spec under test, because a subagent inherits none of it."""
     head = instructions.strip()
     return "\n\n".join(f"{MARKER} {n}\n{head}\n\n{sc.prompt}" for n, sc in items)
 
 
 def _marker_of(text: str) -> int | None:
-    """只認行首那一個標記。
+    """Only the marker that sits alone on its own line counts.
 
-    規則和題目文字都在 item 裡，內文提到 "ITEM 3" 的機會不低；不錨定的話那句話
-    會把答案搶到別的情境上，而報表看起來完全正常。
+    The rules and the issue text both live inside the item, so a passing mention of
+    "ITEM 3" is likely. Without the anchor, that sentence steals the answer for another
+    scenario and the report still looks normal.
     """
     m = re.search(rf"^{MARKER}\s+(\d+)\s*$", text or "", re.MULTILINE)
     return int(m.group(1)) if m else None
@@ -59,10 +64,11 @@ def _marker_of(text: str) -> int | None:
 
 def run_batch(agent_name: str, items: list[tuple[int, Scenario]],
               instructions: str) -> tuple[list[Handled], dict]:
-    """跑一批，回傳每題結果與這個 turn 的原生 metrics。
+    """Run one batch, returning per-scenario results and the turn's own metrics.
 
-    items 的整數是批內編號，用來把 subagent 收到的 prompt 對回情境；同一個情境
-    在同一批出現兩次時編號不同，兩次的答案才不會互相蓋掉。
+    The integer in `items` is the position within the batch, used to map the prompt a
+    subagent received back to its scenario. The same scenario appearing twice in one
+    batch gets two different numbers, so the two answers cannot overwrite each other.
     """
     sid = harness.create_session(agent_name)
     res = harness.run_turn(sid, batch_prompt(items, instructions), stop_at_approval=True)
