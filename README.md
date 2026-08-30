@@ -263,8 +263,8 @@ its own reply on the thread it was raised in.
 Qodo's reviews are paused on this account. From #14 onward every pull request carries its
 "reviews are paused" notice instead of a review, and that includes production-code changes:
 #19 and #20 touch `gate/harness.py` and `gate/writeback.py`, #21 touches `gate/state.py` and
-`gate/web.py`, #22, #26 and #29 touch `gate/web.py`. Those changes were not Qodo-reviewed. The notices
-are still on the pull requests.
+`gate/web.py`, #22, #26 and #29 touch `gate/web.py`, #31 touches `gate/harness.py`. Those changes
+were not Qodo-reviewed. The notices are still on the pull requests.
 
 Four were security issues, and all four were real:
 
