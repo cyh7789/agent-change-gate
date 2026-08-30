@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -229,3 +230,24 @@ def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkey
     out = harness.run_turn("sess", "hello")
     assert out.output == "recovered"
     assert "t-8" in calls[1] and "after_sequence_number=0" in calls[1]
+
+
+def test_a_dropped_connection_on_a_lookup_is_a_harness_error(monkeypatch):
+    """查詢類端點掉線要走 HarnessError，不是讓 URLError 直接冒到呼叫端。
+
+    `_find_turn` 與 `describe_call` 都寫著「拿不到就回 None」，而它們接的是
+    HarnessError。harness 沒起來或連線被斷時 urlopen 丟的是 URLError，那道
+    防護就整個跳過去，核准閘會在查工具名稱的時候炸掉。
+    """
+    from gate import harness
+
+    def refused(req, timeout=None):
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    monkeypatch.setattr(harness.urllib.request, "urlopen", refused)
+
+    with pytest.raises(harness.HarnessError):
+        harness._request("/sessions")
+
+    assert harness._find_turn("sess", "hello") is None
+    assert harness.describe_call("sess", "ev-1", "call-1") is None
