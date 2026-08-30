@@ -1,16 +1,19 @@
-"""通過次數矩陣的統計解讀：agent 寫程式，程式在 sandbox 裡跑。
+"""Statistical reading of the pass-count matrix: the agent writes the code, the sandbox runs it.
 
-這不是 TrueForge 講的 Code Mode。那個指的是 sandbox 裡的程式透過 `mcp_client`
-呼叫 MCP tools，把中間結果留在 sandbox；這裡的次數矩陣本來就在記憶體裡，
-繞一個 tool 什麼也換不到。
+This is not what TrueForge calls Code Mode. That means code in the sandbox calling
+MCP tools through `mcp_client` and keeping intermediate results there. The pass-count
+matrix is already in memory here, so routing it through a tool would buy nothing.
 
-為什麼不是自己寫死一段統計：這一段要回答的問題會變。今天問兩組的區間有沒有
-重疊，下次可能問某一題是不是本來就不穩、或哪幾題撐起了整個差異。讓 agent 針對
-手上的矩陣現寫程式，比預先窮舉所有問法實際。
+Why not hard-code the statistics: the question changes. Today it is whether the two
+arms' intervals overlap; next time it may be whether one scenario was unstable to
+begin with, or which scenarios carry the whole difference. Letting the agent write
+code against the matrix in front of it beats enumerating every question in advance.
 
-界線畫在判決上。fixed / broken / flaky 與 verdict 全部由 `checks.py` 和
-`report.py` 的確定性程式算完才進來這裡；sandbox 只拿到已經定案的次數矩陣，
-產出的是解讀，不會反過來改判決。跑不起來就沒有這一段，報表照出。
+The line is drawn at the verdict. fixed / broken / flaky and the verdict itself are
+settled by deterministic code in `checks.py` and `report.py` before anything reaches
+this module; the sandbox only ever sees a decided matrix, and produces a reading that
+cannot change the verdict. If it fails to run, the section is absent and the report
+still prints.
 """
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ No headings above level 4, no preamble."""
 
 
 def payload(rows: list[dict]) -> str:
-    """每組帶自己的次數：某一組有幾次沒跑成的時候，共用一個 n 會讓 sandbox 算錯。"""
+    """Each arm carries its own count: when one arm has failed runs, a shared n makes the sandbox compute the wrong rate."""
     return json.dumps([{"id": r["id"],
                         "baseline": r["baseline_pass"], "baseline_n": r["baseline_n"],
                         "candidate": r["candidate_pass"], "candidate_n": r["candidate_n"]}
@@ -45,7 +48,7 @@ def payload(rows: list[dict]) -> str:
 
 
 def interpret(rows: list[dict], model: str = "google-gemini/gemini-3-6-flash") -> str | None:
-    """回傳 markdown 區塊；sandbox 或模型出問題時回 None。"""
+    """Return a markdown section, or None when the sandbox or the model fails."""
     name = f"analyst-{uuid.uuid4().hex[:8]}"
     try:
         harness.create_agent(name, {
@@ -58,12 +61,12 @@ def interpret(rows: list[dict], model: str = "google-gemini/gemini-3-6-flash") -
         sid = harness.create_session(name)
         res = harness.run_turn(sid, ASK.format(payload=payload(rows)), stop_at_approval=False)
     except Exception:
-        # 評測已經跑了幾分鐘。附加的解讀壞掉不該把那些結果一起丟掉。
+        # The evaluation already ran for minutes. A broken add-on reading must not take those results down with it.
         return None
     if not res.output:
         return None
     started = any(e.type == "sandbox.created" for e in res.events)
     executed = any(e.type == "tool.response" for e in res.events)
     if not (started and executed):
-        return None          # 只有對話沒有工具回應，代表數字是講出來的，不是跑出來的
+        return None          # Talk with no tool response means the numbers were narrated, not computed
     return res.output.strip()

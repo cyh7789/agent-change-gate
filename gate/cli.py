@@ -1,10 +1,11 @@
-"""Agent Change Gate：一次候選變更，從評測到落地。
+"""Agent Change Gate: one candidate change, from evaluation to landing.
 
     python3 -m gate.cli --spec agents/issue-triage.json --candidate cand.json \
                         --scenarios scenarios/issue-triage.json --repo owner/name
 
-流程固定：跑基準 → 跑候選 → 出比較表 → 停在核准閘 → 人決定 → 落地或作廢。
-比較表在核准之前就印出來，因為要按鈕的人得先看到數字。
+The order is fixed: run the baseline, run the candidate, print the comparison, stop at the
+approval gate, let a person decide, then land or discard. The comparison prints before the
+gate, because whoever presses the button has to see the numbers first.
 """
 from __future__ import annotations
 
@@ -19,22 +20,23 @@ from .scenarios import load
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gate")
-    ap.add_argument("--spec", required=True, help="目前生效的 agent spec")
-    ap.add_argument("--candidate", required=True, help="候選 agent spec")
-    ap.add_argument("--scenarios", required=True, help="凍結情境集")
-    ap.add_argument("--repo", help="核准後要寫回的 GitHub repo（owner/name）")
+    ap.add_argument("--spec", required=True, help="the agent spec currently in effect")
+    ap.add_argument("--candidate", required=True, help="the candidate agent spec")
+    ap.add_argument("--scenarios", required=True, help="the frozen scenario set")
+    ap.add_argument("--repo", help="GitHub repo to write back to once approved (owner/name)")
     ap.add_argument("--branch", default="change-gate/candidate")
     ap.add_argument("--batch-size", type=int, default=4,
-                    help="一批交給幾個 subagent。批內由 harness 扇出，批之間序列跑")
+                    help="scenarios per batch. The harness fans out within a batch; batches run one after another")
     ap.add_argument("--repeat", type=int, default=5,
-                    help="每個情境每組跑幾次。三次的極限差異(0/3 對 3/3)只有 p=0.1，"
-                         "撐不起任何一題的 fixed/broken 宣告，所以預設五次")
+                    help="runs per scenario per arm. The strongest split three repeats can produce "
+                         "(0/3 vs 3/3) is p=0.1, which cannot support calling any scenario "
+                         "fixed or broken, so the default is five")
     ap.add_argument("--no-analysis", action="store_true",
-                    help="跳過 sandbox 統計解讀（判決不受影響）")
-    ap.add_argument("--yes", action="store_true", help="不詢問直接核准（僅供自動化，預設要人回答）")
+                    help="skip the sandbox statistical reading (the verdict is unaffected)")
+    ap.add_argument("--yes", action="store_true", help="approve without asking (automation only; a person answers by default)")
     a = ap.parse_args(argv)
 
-    scenarios = load(a.scenarios)          # digest 不符會在這裡中止
+    scenarios = load(a.scenarios)          # a digest mismatch aborts here
     base_spec = json.loads(Path(a.spec).read_text())
     cand_spec = json.loads(Path(a.candidate).read_text())
 

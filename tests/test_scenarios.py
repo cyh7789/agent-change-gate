@@ -1,4 +1,4 @@
-"""情境集完整性的行為測試：量尺被動過就必須拒跑。"""
+"""Behaviour tests for scenario-set integrity: a measuring stick that was touched must refuse to run."""
 from __future__ import annotations
 
 import json
@@ -31,7 +31,7 @@ def test_editing_a_prompt_is_refused(tmp_path):
     f = tmp_path / "set.json"
     freeze("src", "rev", ITEMS, f)
     raw = json.loads(f.read_text())
-    raw["scenarios"][0]["prompt"] = "tampered"     # 改內容但不改 digest
+    raw["scenarios"][0]["prompt"] = "tampered"     # content changed, digest left alone
     f.write_text(json.dumps(raw))
     with pytest.raises(ScenarioSetTampered):
         load(f)

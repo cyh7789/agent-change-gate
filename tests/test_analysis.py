@@ -1,6 +1,7 @@
-"""sandbox 統計解讀的三件事。
+"""Three things about the sandbox statistical reading.
 
-這一段是附加的：它算錯或跑不起來，都不該影響判決，也不該把整個 gate 弄倒。
+This section is an add-on: getting it wrong or failing to run must not touch the verdict, and
+must not take the gate down with it.
 """
 from __future__ import annotations
 
@@ -18,14 +19,14 @@ ROWS = [{"id": "a", "baseline_pass": 3, "baseline_n": 3, "candidate_pass": 1, "c
 
 
 def test_each_arm_carries_its_own_number_of_runs():
-    """兩組的次數可以不同：某一組有幾次沒跑成的時候，共用一個 n 會讓 sandbox 算錯。"""
+    """The arms can have different counts: with failed runs in one arm, a shared n makes the sandbox compute the wrong rate."""
     sent = json.loads(analysis.payload(ROWS))
     assert sent[0] == {"id": "a", "baseline": 3, "baseline_n": 3, "candidate": 1, "candidate_n": 2}
     assert sent[1]["baseline_n"] == 0 and sent[1]["candidate_n"] == 3
 
 
 def test_a_broken_analyst_does_not_take_the_gate_down(monkeypatch):
-    """評測跑了幾分鐘，不能因為附加的解讀壞掉就整個丟掉。"""
+    """The evaluation ran for minutes and must not be thrown away because an add-on reading broke."""
     def boom(*a, **k):
         raise ValueError("provider returned something unparseable")
 
@@ -34,7 +35,7 @@ def test_a_broken_analyst_does_not_take_the_gate_down(monkeypatch):
 
 
 def test_an_analyst_that_only_talked_is_not_accepted(monkeypatch):
-    """沒有工具回應就代表程式沒跑過；模型自己講出來的數字不算 Code Mode。"""
+    """No tool response means the code never ran; numbers the model narrated do not count as executed."""
     res = harness.TurnResult(events=[harness.Event(1, "sandbox.created", {"sandbox_id": "s"}),
                                      harness.Event(2, "turn.done", {})])
     res.output = "The pass rates are roughly equal."

@@ -1,8 +1,9 @@
-"""一次 gate 執行的即時狀態，給介面讀。
+"""Live state of one gate run, for the console to read.
 
-評測本身不知道有沒有人在看：runner 只呼叫 on_result，這裡把那些回呼收成一份
-可以被輪詢的快照。核准是唯一反向的一條路：評測執行緒等在一個 Condition 上，
-直到有人按下按鈕。
+The evaluation does not know whether anyone is watching: the runner only calls on_result,
+and this module collects those callbacks into a snapshot that can be polled. Approval is
+the one path that runs the other way, with the evaluation thread waiting on a Condition
+until somebody presses the button.
 """
 from __future__ import annotations
 
@@ -13,11 +14,11 @@ from dataclasses import dataclass, field
 @dataclass
 class GateState:
     phase: str = "starting"
-    repo: str = ""      # 介面要說出這個決定會碰到哪個 repo
+    repo: str = ""      # the console has to name the repo this decision touches
     branch: str = ""
-    spec: str = ""      # 正在比的是哪兩份 spec，評測跑的時候畫面上只剩這個
+    spec: str = ""      # which two specs are being compared; during the run this is all the screen has
     candidate: str = ""
-    source: str = ""    # 情境集的出處與 digest，介面上要看得到這次量的是哪一把尺
+    source: str = ""    # provenance and digest of the scenario set, so the console shows which measuring stick this is
     digest: str = ""
     batch_size: int = 0
     scenarios: int = 0
@@ -28,15 +29,15 @@ class GateState:
     baseline_tokens: int = 0
     candidate_tokens: int = 0
     rows: list = field(default_factory=list)
-    # 評測期間的逐題進度：{scenario_id: {arm: [ok, ...]}}
+    # per-scenario progress during the run: {scenario_id: {arm: [ok, ...]}}
     live: dict = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
     verdict: str = ""
     analysis: str | None = None
-    report_md: str = ""   # 介面的 Copy report 從這裡拿，不用再讀一次磁碟
+    report_md: str = ""   # the console's Copy report reads this instead of going back to disk
     pending: dict | None = None
     approvals: int = 0
-    # 已經決定過的寫入，照順序：介面把三次寫入畫成一份逐項清單
+    # writes already decided, in order: the console draws the three as a checklist
     decided: list = field(default_factory=list)
     result: str | None = None
     error: str | None = None
@@ -50,10 +51,11 @@ class GateState:
                 setattr(self, k, v)
 
     def count_run(self, arm: str = "", scenario_id: str = "", ok: bool = False) -> None:
-        """記下這一次跑完的是哪一題、過了沒。
+        """Record which scenario just finished and whether it passed.
 
-        評測要跑十幾分鐘，介面上只有一條進度列的話，那段時間畫面等於空的。
-        逐題累積下來才看得出扇出是真的在動：十六題各自獨立長出結果。
+        The evaluation runs for over ten minutes, and a single progress bar leaves the screen
+        empty for all of it. Filling in scenario by scenario is what shows the fan-out actually
+        working: sixteen scenarios growing results independently.
         """
         with self._cond:
             self.runs_done += 1
@@ -66,13 +68,14 @@ class GateState:
         snap["writes"] = self.writes()
         return snap
 
-    # --- 核准：評測執行緒等在這裡，介面按鈕解開它 ---
+    # --- Approval: the evaluation thread waits here, the console button releases it ---
 
     def ask(self, call: dict) -> bool:
-        """擋住呼叫端，直到有人按下核准或拒絕。
+        """Block the caller until somebody approves or rejects.
 
-        公布 pending、丟掉上一次的答案、開始等待，全在同一把鎖底下：決定要進來就得
-        先拿到這把鎖，所以不會有一個答案卡在「已經送出、但還沒開始等」的縫裡消失。
+        Publishing the pending call, clearing the previous answer and starting to wait all
+        happen under one lock: a decision has to take that lock to arrive, so no answer can
+        land in the gap between "published" and "waiting" and be erased.
         """
         with self._cond:
             self._answer = None
@@ -87,18 +90,19 @@ class GateState:
             self.phase = "landing" if allow else "rejected"
             return allow
 
-    # 落地要走的三個寫入。提交那一步有兩個工具做得到，agent 兩個都用過
-    # （實測：一次 create_or_update_file、一次 push_files），只認一個名字會讓
-    # 那一條在介面上永遠顯示成還沒做。
+    # The three writes a landing goes through. Two tools can perform the commit and the agent
+    # has used both (measured: create_or_update_file once, push_files once), so recognising
+    # only one name leaves that row showing as never done.
     WRITES = (("create the branch", ("create_branch",)),
               ("commit the new spec", ("create_or_update_file", "push_files")),
               ("open the pull request", ("create_pull_request",)))
 
     def writes(self) -> list[dict]:
-        """三個寫入各自到哪一步了，給介面畫成逐項清單。
+        """Where each of the three writes stands, for the console's checklist.
 
-        狀態是 done / refused / open / todo：拒絕過的要留著，不能跟還沒到的長一樣，
-        看的人得分得出「我按了拒絕」和「還沒輪到」。
+        States are done / refused / open / todo. A refusal has to stay visible and must not
+        look like a step that has not come up yet: the reader needs to tell "I rejected this"
+        from "this has not been asked".
         """
         with self._cond:
             decided, pending = list(self.decided), self.pending

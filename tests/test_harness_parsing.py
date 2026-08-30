@@ -1,10 +1,11 @@
-"""事件流解析的行為測試。
+"""Behaviour tests for event-stream parsing.
 
-不打真的 harness：SSE 解析與終止條件是純函式邏輯，用假的事件串驗。
-這裡咬的是三件真的會出錯的事：
-  1. 完成事件叫 turn.done，不是 turn.completed（實測踩過）
-  2. 續接用的 sequence 要取最後一個帶 id 的事件，不是最後一個事件
-  3. 遇到核准要求時必須停下並交出 tool_call_id，不能吃掉繼續跑
+No real harness is involved: SSE parsing and the stop conditions are pure logic, checked
+against a fabricated event stream. These bite on three things that really went wrong:
+  1. the completion event is turn.done, not turn.completed (measured the hard way)
+  2. the resume sequence comes from the last event carrying an id, not the last event
+  3. an approval request has to stop the read and surface the tool_call_id, never be
+     swallowed
 """
 from __future__ import annotations
 
@@ -62,7 +63,7 @@ def test_approval_stops_the_stream_and_keeps_the_call_id():
     ), stop_at_approval=True)
     assert out.pending_approval is not None
     assert out.pending_approval["tool_calls"][0]["id"] == "call_1"
-    assert out.output is None          # 停在核准前，沒有把後續吃進來
+    assert out.output is None          # stopped at the approval, nothing past it consumed
     assert len(out.events) == 2
 
 
@@ -75,7 +76,7 @@ def test_approval_can_be_streamed_through_when_resolving():
 
 
 def test_a_dropped_stream_resumes_from_the_last_sequence(monkeypatch):
-    """連線斷在半路：turn 在伺服器那端還在跑，續接要補完而不是重跑整個 turn。"""
+    """The connection drops mid-stream: the turn is still running server-side, so resume completes it instead of re-running it."""
     from gate import harness
 
     calls = []
@@ -100,7 +101,7 @@ def test_a_dropped_stream_resumes_from_the_last_sequence(monkeypatch):
 
 
 def test_reconnect_gives_up_when_the_turn_never_started(monkeypatch):
-    """連 turn.created 都沒收到就沒有可續接的對象，重試只會空轉。"""
+    """Without even turn.created there is nothing to resume, and retrying only spins."""
     from gate import harness
 
     calls = []
@@ -115,7 +116,7 @@ def test_reconnect_gives_up_when_the_turn_never_started(monkeypatch):
         harness.run_turn("sess", "hello", reconnects=3)
 
     assert "nothing to resume" in str(e.value)
-    assert len(calls) == 1, "沒有 turn_id 就無從續接，不該重試"
+    assert len(calls) == 1, "no turn_id means nothing to resume, so it must not retry"
 
 
 def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
@@ -134,7 +135,7 @@ def test_reconnect_stops_once_the_turn_is_done(monkeypatch):
 
 
 class _FakeResponse:
-    """urlopen 回傳物件的替身：可迭代出位元組行，且是 context manager。"""
+    """Stand-in for what urlopen returns: iterates byte lines and works as a context manager."""
 
     def __init__(self, raw: bytes):
         self._lines = raw.splitlines(keepends=True)
@@ -150,10 +151,10 @@ class _FakeResponse:
 
 
 def test_sequence_id_belongs_to_the_event_it_follows(monkeypatch):
-    """harness 送的是 `data:` 在前、`id:` 在後，兩者屬於同一個 SSE 事件。
+    """The harness sends `data:` first and `id:` second, and both belong to the same SSE event.
 
-    把 id 記給下一個事件的話，每個事件都帶前一個的編號，續接游標就會少一格
-    並重放一個已經收到的事件。
+    Crediting the id to the next event gives every event the previous one's number, leaving the
+    resume cursor one short and replaying an event already received.
     """
     from gate import harness
 
@@ -169,7 +170,7 @@ def test_sequence_id_belongs_to_the_event_it_follows(monkeypatch):
 
 
 def test_an_http_error_on_the_stream_is_not_mistaken_for_a_dropped_connection(monkeypatch):
-    """HTTPError 是 URLError 的子類，落進斷線那條路的話，一個 400 會安靜地變成「沒有輸出」。"""
+    """HTTPError subclasses URLError, so falling into the drop path turns a 400 quietly into "no output"."""
     import urllib.error
     from gate import harness
 
@@ -184,9 +185,10 @@ def test_an_http_error_on_the_stream_is_not_mistaken_for_a_dropped_connection(mo
 
 
 def test_a_turn_that_never_finished_raises_instead_of_looking_empty(monkeypatch):
-    """重試用完還沒收到結局，就不能回一個「沒有輸出」的結果。
+    """Exhausting the retries without an ending must not return a result that reads as no output.
 
-    那會被記成「subagent 沒回答」，把一次連線問題寫成模型的錯。
+    That gets recorded as the subagent failing to answer, writing a connection problem down as
+    the model's fault.
     """
     from gate import harness
 
@@ -201,9 +203,9 @@ def test_a_turn_that_never_finished_raises_instead_of_looking_empty(monkeypatch)
 
 
 def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkeypatch):
-    """連線斷在 turn.created 之前，turn 仍在伺服器上跑。
+    """The connection drops before turn.created, and the turn is still running on the server.
 
-    把 turn 丟掉等於白燒那次呼叫，而 session 這邊查得到它是哪一個。
+    Abandoning it burns that call for nothing, and the session can say which turn it was.
     """
     from gate import harness
 
@@ -216,8 +218,8 @@ def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkey
         yield Event(5, "turn.done", {"state": {"output": {"content": "recovered"}}})
 
     monkeypatch.setattr(harness, "_stream", fake_stream)
-    # 實測過：這個端點最舊的排在前面。認的是自己送出去的那段訊息，不是「最後一筆」,
-    # 因為同一個 session 上可能有別的 turn 在跑。
+    # Measured: this endpoint lists oldest first. The match is on the message we sent, not on
+    # "the last entry", because another turn may be running on the same session.
     def listed(path, body=None, method=None):
         return {"data": [
             {"id": "t-7", "input": [{"type": "user.message", "content": "something else"}]},
@@ -233,11 +235,12 @@ def test_a_drop_before_turn_created_recovers_the_turn_id_from_the_session(monkey
 
 
 def test_a_dropped_connection_on_a_lookup_is_a_harness_error(monkeypatch):
-    """查詢類端點掉線要走 HarnessError，不是讓 URLError 直接冒到呼叫端。
+    """A dropped lookup has to surface as HarnessError, not let URLError reach the caller.
 
-    `_find_turn` 與 `describe_call` 都寫著「拿不到就回 None」，而它們接的是
-    HarnessError。harness 沒起來或連線被斷時 urlopen 丟的是 URLError，那道
-    防護就整個跳過去，核准閘會在查工具名稱的時候炸掉。
+    `_find_turn` and `describe_call` both promise to return None when the value cannot be
+    fetched, and both guard that with `except HarnessError`. With no harness running, or on a
+    dropped connection, urlopen raises URLError, which skips the guard entirely and takes down
+    the approval gate at the point where it looks up a tool name.
     """
     from gate import harness
 

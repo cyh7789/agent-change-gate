@@ -1,11 +1,13 @@
-"""對一份 agent manifest 跑完整組情境，收集結果與 harness 原生 metrics。
+"""Run one agent manifest against the whole scenario set, collecting results and the harness's own metrics.
 
-情境切成批，每批一個 session、一個 turn，批內由 harness 把每題交給自己的
-subagent 去做（`fanout.py`）。批之間序列跑：併發要嘛由 harness 負責，要嘛
-不做，不然這支程式又變回「用執行緒去打 HTTP 端點」。
+Scenarios are cut into batches, one session and one turn each, and within a batch the harness
+hands every scenario to its own subagent (`fanout.py`). Batches run one after another:
+concurrency is either the harness's job or nobody's, otherwise this file goes back to being
+threads hitting an HTTP endpoint.
 
-成本與 token 不自己插樁。harness 的 turn.done 事件原生帶 metrics，
-連 input 是花在 harness、skills、instructions、tool_definitions 還是 messages 都拆好了。
+Cost and tokens are not instrumented here. The harness's turn.done event carries metrics
+already, down to whether input was spent on harness, skills, instructions, tool_definitions
+or messages.
 """
 from __future__ import annotations
 
@@ -31,11 +33,12 @@ class ScenarioRun:
 
 @dataclass
 class ArmResult:
-    """一組（基準或候選）跑完整組情境的結果。
+    """One arm's results (baseline or candidate) over the whole scenario set.
 
-    同一個情境可能被跑很多次：模型輸出不是確定性的，實測同一份 spec 連跑三次，
-    16 題裡有 1 題給出 pass/fail/fail。只跑一次的話，那一題會被當成變更造成的
-    退步報上去，而它跟變更無關。
+    A scenario can be run many times, because model output is not deterministic: measured on
+    three consecutive runs of the same spec, 1 of the 16 scenarios answered pass/fail/fail.
+    With a single run, that scenario gets reported as a regression caused by the change, when
+    it has nothing to do with the change.
     """
     label: str
     agent_name: str
@@ -66,10 +69,11 @@ class ArmResult:
 
 
 def coordinator_manifest(manifest: dict) -> dict:
-    """受測 spec 的模型與設定照用，instructions 換成純分派者。
+    """Keep the spec under test's model and config, replace its instructions with a pure dispatcher.
 
-    受測的 instructions 不放在協調者身上：subagent 繼承不到它們，而協調者自己也
-    不該按著受測規則作答。那份規則跟著題目走，見 `fanout.batch_prompt`。
+    The instructions under test do not sit on the coordinator: subagents inherit none of them,
+    and the coordinator should not be answering by the rules being measured either. Those rules
+    travel with the item; see `fanout.batch_prompt`.
     """
     m = copy.deepcopy(manifest)
     m["instructions"] = fanout.DISPATCHER
@@ -88,10 +92,11 @@ def _batches(scenarios: list[Scenario], repeat: int, size: int):
 def run_arm(label: str, manifest: dict, scenarios: ScenarioSet,
             batch_size: int = 4, repeat: int = 1,
             on_result: Callable[[ScenarioRun], None] | None = None) -> ArmResult:
-    """建一個一次性 agent，對整組情境跑一遍。
+    """Create a throwaway agent and take it once through the whole scenario set.
 
-    agent 名字帶亂數後綴：同一份 manifest 可能被跑很多次，重名會撞到既有 agent，
-    拿到的就不是這次要量的那個設定。
+    The random suffix on the agent name matters: the same manifest may be run many times, and a
+    repeated name collides with an existing agent, so what gets measured is not the config
+    intended for this run.
     """
     agent_name = f"{label}-{uuid.uuid4().hex[:8]}"
     instructions = manifest.get("instructions") or ""

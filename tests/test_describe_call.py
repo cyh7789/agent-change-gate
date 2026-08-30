@@ -1,7 +1,8 @@
-"""核准閘上顯示的東西：從 model.message 還原出工具名稱與參數。
+"""What the gate displays: recovering the tool name and arguments from a model.message.
 
-事件外形取自實測（`GET /sessions/{id}/events`）：MCP 的呼叫外面包一層 call_tool，
-真正的工具名在 `function.arguments` 的 `tool_name` 裡。
+The event shape comes from the live endpoint (`GET /sessions/{id}/events`): an MCP call is
+wrapped in call_tool, and the real tool name sits in `tool_name` inside
+`function.arguments`.
 """
 from __future__ import annotations
 
@@ -78,4 +79,4 @@ def test_long_and_non_scalar_arguments_stay_off_the_card(events):
             "function": {"name": "call_tool", "arguments": args}}
     events([{"event": {**EVENT, "tool_calls": [call]}}])
     got = harness.describe_call("s1", EVENT["id"], "call_792298")
-    assert got["input"] == {"path": "agents/issue-triage.json"}, "長字串與巢狀值不進卡片"
+    assert got["input"] == {"path": "agents/issue-triage.json"}, "long strings and nested values stay off the card"

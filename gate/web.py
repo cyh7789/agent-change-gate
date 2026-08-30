@@ -1,12 +1,13 @@
-"""看得見的 gate：進度、比較表、核准按鈕，全部在一頁上。
+"""The gate made visible: progress, the comparison and the approval buttons on one page.
 
     python3 -m gate.web --spec agents/issue-triage.json \
                         --candidate agents/issue-triage.candidate.json \
                         --scenarios scenarios/issue-triage.json \
                         --repo owner/name
 
-評測在背景執行緒跑，頁面每秒輪詢一次狀態。核准按鈕是唯一反向的一條路，
-按下去才會解開等在核准閘前面的那個執行緒。
+The evaluation runs on a background thread and the page polls state once a second. The
+approval buttons are the one path running the other way: pressing one releases the thread
+waiting at the gate.
 """
 from __future__ import annotations
 
@@ -24,13 +25,15 @@ from . import analysis, report, runner, writeback
 from .scenarios import load
 from .state import GateState
 
-# raw string：裡面整段是 HTML 與 JS，反斜線要原樣送到瀏覽器。非 raw 的話
-# JS 正則的 \/ 會被 Python 3.12+ 判成無效跳脫，3.15 起是 SyntaxError。
+# Raw string: this is HTML and JS whose backslashes must reach the browser untouched. Without
+# the r prefix, the \/ in a JS regex is an invalid escape on Python 3.12+ and a SyntaxError
+# from 3.15.
 PAGE = r"""<!doctype html>
 <meta charset="utf-8"><title>Agent Change Gate</title>
 <style>
- /* 版面照這類工具的慣例：一列有名字的階段、判決當主角、細節預設收起來、
-    決策卡片旁邊寫這個動作會碰到什麼。等待人不是失敗，用琥珀色不用紅色。 */
+ /* Layout follows the conventions of tools like this: a row of named phases, the verdict as
+    the headline, details collapsed by default, and the decision card saying what the action
+    will touch. Waiting on a person is not a failure, so it is amber and not red. */
  :root { color-scheme: dark;
    --bg:#0e1016; --panel:#151823; --line:#232838; --ink:#e8eaf2; --dim:#8990a8;
    --blue:#5b8cff; --green:#3fb37f; --amber:#e0a83c; --red:#e35d5d; --violet:#a98bf5; }
@@ -39,7 +42,7 @@ PAGE = r"""<!doctype html>
         background:var(--bg); color:var(--ink); margin:0; display:flex; min-height:100vh; }
  code, .mono, table { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
 
- /* 左欄：這次執行的身分，加上分區錨點。少了它整頁只剩內容，讀起來像一份報表不像工具 */
+ /* Left column: what this run is, plus section anchors. Without it the page is only content and reads like a report rather than a tool */
  nav { width:216px; flex:none; border-right:1px solid var(--line); background:#0b0d13;
        padding:22px 16px; display:flex; flex-direction:column; gap:20px; }
  nav h1 { font-size:15px; margin:0; font-weight:650; letter-spacing:-.01em; }
@@ -61,7 +64,7 @@ PAGE = r"""<!doctype html>
  h1 { font-size:19px; margin:0; font-weight:600; letter-spacing:-.01em; }
  .repo { color:var(--dim); font-size:13px; }
 
- /* 參數列：這次跑的到底是什麼配置。原本只有一行小字 */
+ /* Parameter row: the configuration this run actually used. This used to be one line of small text */
  .params { display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
  .param { border:1px solid var(--line); background:var(--panel); border-radius:7px;
           padding:4px 9px; font-size:11.5px; color:var(--dim);
@@ -71,13 +74,13 @@ PAGE = r"""<!doctype html>
           color:var(--dim); font-size:12px; padding:5px 11px; border-radius:7px; }
  .ghost:hover { color:var(--ink); border-color:#3a4157; }
 
- /* 表格篩選：16 列裡只有 1 列有話要說，讓人自己挑要看哪一群 */
+ /* Table filter: usually 1 of the 16 rows has something to say, so let the reader pick the group */
  .chips { display:flex; gap:6px; margin:16px 0 2px; }
  .chip { border:1px solid var(--line); background:transparent; color:var(--dim);
          font-size:12px; padding:4px 11px; border-radius:999px; }
  .chip.on { color:var(--ink); border-color:var(--blue); background:#16203a; }
 
- /* 階段列：每一格自己說明它在做什麼，不是一個色塊 */
+ /* Phase row: each cell says what it is doing rather than being a coloured block */
  .steps { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
  .step { font-size:12.5px; padding:5px 11px; border-radius:999px; border:1px solid var(--line);
          color:var(--dim); background:var(--panel); white-space:nowrap; }
@@ -85,9 +88,9 @@ PAGE = r"""<!doctype html>
  .step.now  { color:var(--ink); border-color:var(--blue); background:#16203a; }
  .step.wait { color:var(--amber); border-color:#3d3117; background:#211a09; }
  .step.bad  { color:var(--red); border-color:#3d1f1f; background:#210d0d; }
- /* 評測要跑二十分鐘。細線加低色差的話，畫面看起來是靜止的，
-    而這一段的重點正是「它在做事」。條子加高、加軌道、加會動的斜紋，
-    數字三十秒不變的時候也看得出還在跑。 */
+ /* The evaluation runs for twenty minutes. A thin bar in low contrast looks frozen, and the
+    whole point of this stretch is that work is happening. A taller bar with a track and moving
+    stripes still reads as running when the numbers hold still for thirty seconds. */
  .bar { height:10px; background:#1b1f2c; border:1px solid var(--line); border-radius:6px;
         overflow:hidden; margin:16px 0 8px; }
  .bar > div { height:100%; width:0; border-radius:5px; transition:width .4s ease;
@@ -97,19 +100,19 @@ PAGE = r"""<!doctype html>
    background:repeating-linear-gradient(115deg, rgba(255,255,255,.16) 0 12px,
                                         transparent 12px 26px);
    animation:crawl 1.1s linear infinite; }
- .bar.done > div::after { display:none; }   /* 跑完就別再裝作在動 */
+ .bar.done > div::after { display:none; }   /* once finished, stop pretending to move */
  @keyframes crawl { to { background-position:26px 0; } }
  .runline { color:var(--dim); font-size:13px; display:flex; gap:10px; align-items:baseline; }
  .runline b { color:var(--ink); font-weight:600; font-size:15px;
               font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
  .runline .arm { color:var(--blue); }
 
- /* 判決當主角：大字、依結果換色，底下一句話說它為什麼是這個結果 */
+ /* The verdict as the headline: large, coloured by outcome, with one line under it saying why */
  .verdict { margin:26px 0 4px; }
  .verdict .v { font-size:30px; font-weight:650; letter-spacing:-.02em; }
  .verdict .why { color:var(--dim); font-size:14px; margin-top:6px; }
- /* 評測期間主角是進度：數字大到跟判決同一個份量，畫面才有東西在動。
-    跑完數字換成判決，版位不變。 */
+ /* During the run, progress is the headline: the number carries the same weight the verdict
+    will, so something on screen is moving. When it finishes the verdict takes the same slot. */
  .verdict .count { font-size:52px; font-weight:680; letter-spacing:-.03em;
                    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
                    line-height:1.05; }
@@ -124,7 +127,7 @@ PAGE = r"""<!doctype html>
  .card b { display:block; font-size:20px; font-weight:600; }
  .card span { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.07em; }
 
- /* 核准：三次寫入是一份逐項清單，還沒到的那幾條也看得見 */
+ /* Approval: the three writes are a checklist, and the steps not yet reached stay visible */
  .gate { background:#1a1408; border:1px solid #46381a; border-radius:12px;
          padding:18px 20px; margin:22px 0; }
  .gate h2 { font:600 13px/1 -apple-system, system-ui, sans-serif; margin:0 0 12px;
@@ -145,7 +148,7 @@ PAGE = r"""<!doctype html>
  .checklist .todo::before { content:"○ "; }
  .checklist .open { color:var(--ink); }
 
- /* 評測期間的逐題進度：一題一格，每跑完一次點一顆。扇出是真的在動，看得出來 */
+ /* Per-scenario progress: one cell per scenario, one dot per completed run, so the fan-out is visibly working */
  .live { display:grid; grid-template-columns:repeat(auto-fill, minmax(196px, 1fr));
          gap:8px; margin-top:20px; }
  .cell { background:var(--panel); border:1px solid var(--line); border-radius:9px;
@@ -197,11 +200,12 @@ PAGE = r"""<!doctype html>
 <script>
 const TOKEN = "__TOKEN__";
 const $ = id => document.getElementById(id);
-// 這一頁顯示的東西有一部分是 agent 寫的（工具名稱與參數、失敗原因、sandbox 的分析）。
-// 直接塞進 innerHTML 等於讓被評測的 agent 決定這一頁執行什麼。
+// Some of what this page shows is written by an agent: tool names and arguments, failure
+// reasons, the sandbox's analysis. Passing that to innerHTML would let the agent under
+// evaluation decide what this page executes.
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// 標題用一句人話交代現在在幹嘛，不是把內部 phase 字串丟出去
+// The heading says what is happening in a sentence instead of dumping the internal phase string
 const PHASE_TITLE = {
   'starting': 'starting up',
   'evaluating': 'running the scenario set against both specs',
@@ -217,7 +221,7 @@ const cls = d => ({same:'same',flaky:'flaky',broken:'broken',fixed:'fixed',
                    unproven:'unproven',incomplete:'incomplete'}[d]||'');
 let filter = 'all';   // all | moved | same
 
-// 階段名字自己交代在做什麼，讀的人不必先認得這個工具
+// Phase names explain themselves, so the reader does not have to know this tool first
 const STEPS = [
   ['evaluating baseline',   s => s.arm === 'baseline' && s.phase === 'evaluating'],
   ['evaluating candidate',  s => s.arm === 'candidate' && s.phase === 'evaluating'],
@@ -237,7 +241,7 @@ function steps(s) {
   }).join('');
 }
 
-// 判決的字自己帶原因，旁邊那句話說它是怎麼算出來的
+// The verdict carries its reason, and the line beside it says how it was computed
 function verdict(s) {
   if (!s.verdict) {
     if (!s.runs_total) return '';
@@ -263,7 +267,7 @@ function verdict(s) {
           <div class="why">${esc(bits.join(' · '))}.${esc(costed)}</div>`;
 }
 
-// 核准卡：標題是工具名，底下是它的參數，按鈕旁邊寫這個決定會碰到什麼
+// Approval card: the tool name as the title, its arguments underneath, and beside the buttons what this decision touches
 function gate(s) {
   if (s.pending) {
     const c = s.pending;
@@ -288,8 +292,8 @@ function gate(s) {
   return (s.decided||[]).length ? `<div class="gate">${checklist(s)}</div>` : '';
 }
 
-// 「還不能過」拆成具名的三條，而不是一顆灰掉的按鈕
-// 哪一步到哪裡由伺服器算（GateState.writes），這一頁只負責畫
+// "Not yet" is three named steps rather than one greyed-out button.
+// Which step stands where is computed server-side (GateState.writes); this page only draws it
 const MARK = {done:'ok', refused:'no', open:'open', todo:'todo'};
 function checklist(s) {
   const items = (s.writes || []).map(w =>
@@ -297,7 +301,7 @@ function checklist(s) {
   return `<ul class="checklist">${items}</ul>`;
 }
 
-// 16 列裡通常只有 1 列有話要說，預設只給那一群，其餘讓人自己挑
+// Usually 1 of the 16 rows has something to say, so that group is the default and the rest are a click away
 function table(s) {
   const rows = s.rows || [];
   if (!rows.length) return '';
@@ -317,7 +321,7 @@ function table(s) {
 }
 function setFilter(k) { filter = k; tick(); }
 
-// 左欄：這次執行的身分，加上帶數字的分區錨點
+// Left column: what this run is, plus numbered section anchors
 function rail(s) {
   const rows = s.rows || [];
   const moved = rows.filter(r => r.delta !== 'same').length;
@@ -332,7 +336,7 @@ function rail(s) {
     `<li><a href="#${id}">${esc(label)}<i>${esc(note)}</i></a></li>`).join('');
 }
 
-// 參數列：這次量的是哪一把尺、跑幾次、幾題一批
+// Parameter row: which measuring stick, how many repeats, how many scenarios per batch
 function params(s) {
   const p = (k, v) => v ? `<span class="param">${esc(k)} <b>${esc(v)}</b></span>` : '';
   return p('scenarios', s.source ? s.source.replace(/^https?:\/\//, '') : '')
@@ -348,9 +352,9 @@ async function copyReport() {
   document.querySelector('.ghost').textContent = 'Copied';
 }
 
-// 評測跑十幾分鐘，這段時間畫面上只有進度列的話等於空的。
-// 一題一格、每跑完一次點一顆，扇出在動這件事就看得見。
-let seen = {};   // 上一次每一格已經有幾顆，用來認出這一輪新長出來的那些
+// The evaluation runs for over ten minutes, and a lone progress bar leaves the screen empty
+// for all of it. One cell per scenario and one dot per completed run makes the fan-out visible.
+let seen = {};   // how many dots each cell had last time, used to spot the ones added this round
 function live(s) {
   if (s.verdict || !Object.keys(s.live || {}).length) return '';
   const slots = s.repeats || 1;
@@ -363,7 +367,8 @@ function live(s) {
       next[key] = got.length;
       const dots = Array.from({length: slots}, (_, i) => {
         if (i >= got.length) return '<span class="dot"></span>';
-        // 只有這一輪才出現的那幾顆閃：每秒重畫一次，全部都閃的話等於沒閃
+        // Only the dots added this round flash: the page redraws every second, and everything
+        // flashing is the same as nothing flashing
         const fresh = i >= before ? ' fresh' : '';
         return `<span class="dot ${got[i] ? 'pass' : 'fail'}${fresh}"></span>`;
       }).join('');
@@ -459,15 +464,16 @@ def run_gate(a, state: GateState) -> None:
             return
         landed, output = writeback.land(pending, lambda p: state.ask(p.call))
         state.update(phase="landed" if landed else "rejected", result=output)
-    except Exception as e:                      # 介面要說出哪裡壞了，不能只是停住
+    except Exception as e:                      # the console has to say what broke, not just stop
         state.update(phase="failed", error=f"{type(e).__name__}: {e}")
 
 
 def serve(state: GateState, port: int, token: str) -> None:
-    """核准端點要帶 token。
+    """The approval endpoint requires a token.
 
-    綁 127.0.0.1 只擋掉別台機器；這台機器上跑的任何東西都能 POST /decide，
-    而那個端點放行的是不可逆的動作。token 只發給拿得到頁面的人。
+    Binding to 127.0.0.1 only keeps other machines out. Anything running on this machine can
+    POST /decide, and that endpoint releases irreversible actions. The token goes only to
+    whoever can load the page.
     """
     page = PAGE.replace("__TOKEN__", token).encode()
 

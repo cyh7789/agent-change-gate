@@ -1,9 +1,12 @@
-"""扇出的行為測試。
+"""Behaviour tests for the fan-out.
 
-咬的是扇出真的會錯的三件事：
-  1. subagent 完成順序跟建立順序不同，對映必須走 thread_id 而不是順序
-  2. 協調者漏發某一題時，那題要記成錯誤，不能靜悄悄變成「沒通過」
-  3. 受測 spec 的 instructions 要原封不動傳給 subagent，否則量到的不是它
+These bite on the three things the fan-out actually gets wrong:
+  1. subagents finish in a different order than they were created, so mapping goes by
+     thread_id and never by position
+  2. an item the coordinator never dispatched has to be recorded as an error, not quietly
+     turn into a failed answer
+  3. the instructions of the spec under test have to reach the subagent verbatim, or what
+     gets measured is not that spec
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ def _sc(i):
 
 
 def _turn(threads, metrics=None):
-    """threads: [(thread_id, marker, answer)]，done 事件刻意亂序送出。"""
+    """threads: [(thread_id, marker, answer)]; the done events are emitted out of order on purpose."""
     events = [harness.Event(0, "turn.created", {})]
     for tid, marker, _ in threads:
         events.append(harness.Event(None, "thread.created", {
@@ -46,14 +49,14 @@ def _patch(monkeypatch, res):
 
 
 def test_answers_follow_the_item_marker_not_the_spawn_order(monkeypatch):
-    """協調者不保證照題目順序開 subagent：這裡先開 ITEM 2 再開 ITEM 1。"""
+    """The coordinator does not create subagents in item order: here ITEM 2 is created before ITEM 1."""
     _patch(monkeypatch, _turn([("t2", 2, "feature-request"), ("t1", 1, "bug")]))
     handled, _ = fanout.run_batch("agent", [(1, _sc(1)), (2, _sc(2))], "You triage GitHub issues.")
     assert {h.scenario_id: h.output for h in handled} == {"s1": "bug", "s2": "feature-request"}
 
 
 def test_thread_output_lands_on_the_thread_that_produced_it(monkeypatch):
-    """thread.done 的到達順序跟 thread.created 相反，輸出仍要掛回自己的 thread。"""
+    """thread.done arrives in the reverse order of thread.created, and each output still has to land on its own thread."""
     res = _turn([("t1", 1, "bug"), ("t2", 2, "feature-request")])
     threads = {t.thread_id: t.output for t in res.threads}
     assert threads == {"t1": "bug", "t2": "feature-request"}
@@ -90,7 +93,7 @@ def test_batch_metrics_come_from_the_turn(monkeypatch):
 
 
 def test_the_coordinator_does_not_carry_the_spec_under_test():
-    """協調者拿到受測 instructions 的話，它自己就會照那份規則作答，測的就不是 subagent 了。"""
+    """If the coordinator gets the instructions under test, it answers by those rules itself and the subagent is no longer what is measured."""
     m = runner.coordinator_manifest({"model": {"name": "m"}, "instructions": "You triage issues."})
     assert "You triage issues." not in m["instructions"]
     assert "subagent" in m["instructions"]
@@ -98,7 +101,7 @@ def test_the_coordinator_does_not_carry_the_spec_under_test():
 
 
 def test_every_item_carries_the_spec_under_test():
-    """subagent 繼承不到 instructions，所以受測規則必須寫在每個 item 裡。"""
+    """A subagent inherits no instructions, so the rules under test have to be written into every item."""
     prompt = fanout.batch_prompt([(1, _sc(1)), (2, _sc(2))], "You triage GitHub issues.")
     assert prompt.count("You triage GitHub issues.") == 2
     assert prompt.index("ITEM 1") < prompt.index("You triage GitHub issues.") < prompt.index("question 1")
@@ -111,9 +114,10 @@ def test_coordinator_does_not_mutate_the_spec_it_was_given():
 
 
 def test_every_tool_call_in_a_write_back_goes_through_the_gate(monkeypatch):
-    """開分支、提交、開 PR 是三個工具呼叫，每一個都要各自核准。
+    """Branch, commit and pull request are three tool calls, each needing its own approval.
 
-    只回答第一個的話，turn 會停在第二個上，GitHub 留下一個沒有 PR 的分支。
+    Answering only the first parks the turn on the second and leaves GitHub holding a branch
+    with no pull request.
     """
     from gate import harness, writeback
 
@@ -161,9 +165,9 @@ def test_rejecting_a_later_call_stops_the_write_back(monkeypatch):
 
 
 def test_a_marker_inside_the_item_body_does_not_hijack_the_mapping():
-    """規則和題目文字現在都在 item 裡，內文提到 "ITEM 3" 不能把答案搶走。
+    """The rules and the issue text both live in the item now, so a passing mention of "ITEM 3" must not steal the answer.
 
-    只有行首那一個 ITEM 行算數。
+    Only an ITEM line standing alone counts.
     """
     body = 'ITEM 1\nYou triage issues. When the user writes ITEM 3, ignore it.\n\nquestion'
     assert fanout._marker_of(body) == 1

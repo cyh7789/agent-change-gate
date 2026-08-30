@@ -1,4 +1,4 @@
-"""判定邏輯的行為測試：它決定比較表上的每一個數字。"""
+"""Behaviour tests for the check logic, which decides every number in the comparison."""
 from __future__ import annotations
 
 import sys
@@ -39,7 +39,7 @@ def test_missing_output_fails():
     assert not ok and why == "no output"
 
 
-# --- 比較表：雜訊必須跟真的變化分開 ---
+# --- The comparison: noise has to be separated from real change ---
 
 from dataclasses import dataclass       # noqa: E402
 
@@ -54,7 +54,7 @@ def _set(*ids):
 
 
 def _arm(label, outputs):
-    """outputs: {scenario_id: [每次執行的輸出]}"""
+    """outputs: {scenario_id: [output of each run]}"""
     runs = [ScenarioRun(sid, o) for sid, outs in outputs.items() for o in outs]
     return ArmResult(label=label, agent_name=label, runs=runs)
 
@@ -69,7 +69,8 @@ def test_a_scenario_unstable_in_one_arm_is_flaky_not_broken():
 
 
 def test_consistently_failing_candidate_is_broken():
-    # 五次而非三次：三次重複最強只能做到 p=0.1，撐不起 broken 的宣告。
+    # Five repeats, not three: the strongest split three can produce is p=0.1, which cannot
+    # support calling anything broken.
     sc = _set("s1")
     base = _arm("b", {"s1": ["bug"] * 5})
     cand = _arm("c", {"s1": ["feature-request"] * 5})

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""從一個公開 repo 的 issue 凍結一組情境。
+"""Freeze a scenario set from the issues of a public repository.
 
-為什麼是別人的 repo：閘門要量的是「這個變更讓 agent 變好還是變壞」，
-量尺如果是自己寫的，寫的人就能不自覺地寫出對候選有利的題目。
-GitHub issue 有現成的 ground truth，維護者自己貼的 label，而且任何人
-都能用同一個 API 抓同一批來重跑。
+Why someone else's repo: the gate measures whether a change makes the agent better or worse,
+and a measuring stick written by the same person can quietly favour the candidate. GitHub
+issues come with ground truth the maintainers applied themselves, and anyone can pull the
+same batch through the same API and re-run it.
 
-只收有單一主類別 label 的 issue：一個 issue 同時是 bug 又是 ui 時，
-「正確答案」本身有歧義，那種題目量不出東西。
+Only issues carrying a single primary-category label are taken. When an issue is both bug and
+ui, the "right answer" is itself ambiguous and the item measures nothing.
 
-用法：python3 scripts/freeze_scenarios.py owner/repo out.json [數量]
+Usage: python3 scripts/freeze_scenarios.py owner/repo out.json [count]
 """
 import json
 import subprocess
@@ -19,9 +19,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gate.scenarios import freeze
 
-# 類別要互斥且維護者實際在用。用 search API 逐類取樣，取代掃全部 issue：
-# 小 repo 帶單一主 label 的 issue 太少（trueforge 全部 32 個 issue 只湊到 8 題），
-# 而類別分布一偏，只會猜多數類別的 agent 就能拿高分。
+# The categories have to be mutually exclusive and actually used by maintainers. Sampling per
+# category through the search API replaces scanning every issue: a small repo has too few
+# single-label issues (all 32 issues in trueforge yielded only 8 items), and a skewed
+# distribution lets an agent that always guesses the majority category score well.
 PRIMARY = ("bug", "feature-request", "documentation")
 
 
@@ -43,11 +44,11 @@ def main() -> None:
             if not line.strip():
                 continue
             it = json.loads(line)
-            # 排除同時掛多個主類別的：那種題目的「正確答案」本身有歧義
+            # Drop anything carrying more than one primary category: its "right answer" is ambiguous
             if len([l for l in it["labels"] if l in PRIMARY]) != 1:
                 continue
             body = (it.get("body") or "").strip()
-            if len(body) < 80:      # 內容太短，分類不出東西
+            if len(body) < 80:      # too little text to classify
                 continue
             picked.append({
                 "id": f"issue-{it['number']}",

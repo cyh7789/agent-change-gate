@@ -1,8 +1,9 @@
-"""TrueForge harness 的 HTTP 介面。
+"""HTTP interface to the TrueForge harness.
 
-只包住我們用得到的四件事：建 agent、開 session、跑 turn、續接被中斷的 turn。
-turn 端點回的是 SSE，不是 JSON。事件逐筆帶單調遞增的 sequence id，
-續接時把最後看到的 id 當 exclusive cursor 傳回去，harness 會從那之後重放。
+It wraps only the four things this project needs: create an agent, open a session, run a
+turn, and resume an interrupted one. The turn endpoint answers with SSE, not JSON. Events
+carry a monotonically increasing sequence id; on resume the last id seen goes back as an
+exclusive cursor and the harness replays everything after it.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ class Event:
 
 @dataclass
 class ThreadResult:
-    """一個 subagent 的一生：收到什麼、回了什麼。"""
+    """One subagent's whole life: what it was given, what it answered."""
     thread_id: str
     input: str
     output: str | None = None
@@ -46,10 +47,11 @@ class TurnResult:
 
     @property
     def threads(self) -> list[ThreadResult]:
-        """把扇出的 subagent 逐一還原。
+        """Reconstruct each subagent of the fan-out.
 
-        對映一定要走 thread_id：thread.done 的到達順序跟 thread.created 不同
-        （實測四題扇出，created 是 1234，done 是 2143），照順序配會把答案錯位。
+        Mapping has to go through thread_id: thread.done arrives in a different order than
+        thread.created. Measured on a four-item fan-out, created was 1234 and done was 2143,
+        so matching by position attaches answers to the wrong items.
         """
         seen: dict[str, ThreadResult] = {}
         for ev in self.events:
@@ -82,7 +84,7 @@ class TurnResult:
 
     @property
     def finished(self) -> bool:
-        """這個 turn 已經有結局：跑完、失敗，或停在核准閘。"""
+        """The turn has reached an end: finished, failed, or stopped at the approval gate."""
         return self.pending_approval is not None or any(
             e.type in ("turn.done", "turn.failed") for e in self.events)
 
@@ -107,8 +109,9 @@ def _request(path: str, body: dict | None = None, method: str | None = None):
     except urllib.error.HTTPError as e:
         raise HarnessError(f"{e.code} {path}: {e.read().decode()[:300]}") from e
     except DROPPED as e:
-        # 呼叫端的 `except HarnessError` 是它們「拿不到就回 None」的防護。掉線走
-        # URLError 的話那道防護整個跳過去，查一次工具名稱就能讓核准閘炸掉。
+        # Callers guard their "return None when it cannot be fetched" path with
+        # `except HarnessError`. A dropped connection raises URLError, which skips that guard
+        # entirely, and one tool-name lookup is then enough to take down the approval gate.
         raise HarnessError(f"{path}: {e}") from e
 
 
@@ -121,10 +124,11 @@ def create_session(agent_name: str) -> str:
 
 
 def _stream(url: str, body: dict | None) -> Iterator[Event]:
-    """一個 SSE 事件在空行處結束，`id:` 跟它前面的 `data:` 屬於同一個事件。
+    """An SSE event ends at the blank line, and `id:` belongs to the `data:` above it.
 
-    harness 送的順序是 data 先、id 後，所以事件不能一看到 data 就吐出去：
-    那樣每個事件都會配到前一個的編號，續接游標少一格，重放一個已經收過的事件。
+    The harness sends data first and id second, so an event cannot be emitted the moment its
+    data arrives: doing that pairs every event with the previous event's number, leaving the
+    resume cursor one short and replaying an event already received.
     """
     req = urllib.request.Request(
         url,
@@ -136,8 +140,9 @@ def _stream(url: str, body: dict | None) -> Iterator[Event]:
     try:
         r = urllib.request.urlopen(req, timeout=1800)
     except urllib.error.HTTPError as e:
-        # HTTPError 是 URLError 的子類。不在這裡轉成 HarnessError 的話，一個 400
-        # 會落進續接那條路，被當成斷線重試，最後安靜地變成「這批沒有輸出」。
+        # HTTPError subclasses URLError. Without this conversion a 400 falls into the resume
+        # path, gets retried as if the connection dropped, and quietly ends up reported as
+        # "this batch produced no output".
         raise HarnessError(f"{e.code} {url}: {e.read().decode()[:300]}") from e
     with r:
         for raw in r:
@@ -150,12 +155,13 @@ def _stream(url: str, body: dict | None) -> Iterator[Event]:
                 if payload is not None:
                     yield Event(seq=seq, type=payload.get("type", ""), data=payload)
                 seq, payload = None, None
-        if payload is not None:                     # 串流沒有以空行收尾
+        if payload is not None:                     # the stream did not end on a blank line
             yield Event(seq=seq, type=payload.get("type", ""), data=payload)
 
 
 def _consume_into(out: TurnResult, events: Iterator[Event], stop_at_approval: bool) -> TurnResult:
-    # 完成事件是 `turn.done`（不是 turn.completed）。實測 SSE 事件名，別照猜的寫。
+    # The completion event is `turn.done`, not turn.completed. Event names here are measured
+    # against the live stream, not guessed.
     for ev in events:
         out.events.append(ev)
         if ev.type == "tool.approval_required" and stop_at_approval:
@@ -178,10 +184,11 @@ DROPPED = (urllib.error.URLError, http.client.HTTPException, ConnectionError, Ti
 
 def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
              reconnects: int = 3) -> TurnResult:
-    """跑一個 turn，連線掉了就從斷點續接。
+    """Run a turn, resuming from the break if the connection drops.
 
-    turn 在伺服器那端繼續跑，所以斷線不該讓整批重來。一批情境要跑好幾分鐘，
-    重跑的代價是整批的 token。續接用 sequence 當 exclusive cursor，事件不重複也不遺漏。
+    The turn keeps running server-side, so a dropped connection should not restart the batch.
+    A batch of scenarios takes minutes and re-running it costs the whole batch in tokens.
+    Resume uses the sequence as an exclusive cursor, so no event repeats and none is lost.
     """
     body = {"input": [{"type": "user.message", "content": message}]}
     out = TurnResult()
@@ -194,8 +201,8 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
             break
         turn_id, after = out.turn_id, out.last_seq
         if turn_id is None:
-            # 連 turn.created 都沒收到，但 turn 已經在伺服器上跑了。丟掉它等於
-            # 白燒那次呼叫，而這個 session 最新的那一筆就是它。
+            # Not even turn.created arrived, yet the turn is already running on the server.
+            # Abandoning it burns that call for nothing.
             turn_id, after = _find_turn(session_id, message), 0
             if turn_id is None:
                 break
@@ -207,7 +214,8 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
         except DROPPED:
             continue
     if not out.finished:
-        # 空手回去的話，呼叫端只看得到「沒有輸出」，那會被寫成模型答不出來。
+        # Returning empty-handed shows the caller only "no output", which gets recorded as the
+        # model failing to answer.
         raise HarnessError(
             f"turn {out.turn_id} never reached a terminal event after {reconnects} reconnects"
             if out.turn_id else
@@ -216,11 +224,12 @@ def run_turn(session_id: str, message: str, stop_at_approval: bool = True,
 
 
 def _find_turn(session_id: str, message: str) -> str | None:
-    """在這個 session 上找出我們剛剛送出的那個 turn。
+    """Find the turn we just sent on this session.
 
-    認的是 turn 自己記著的輸入內容。「拿最後一筆」在同一個 session 上有別的 turn
-    在跑的時候會接錯對象，續接一個不屬於自己的 turn。
-    端點最舊在前（實測三個 turn，建立順序就是列出順序），所以從尾端往回找。
+    It matches on the input the turn itself records. Taking the last entry picks the wrong
+    turn whenever another one is running on the same session, and resumes something that is
+    not ours. The endpoint lists oldest first, measured on three turns created in order, so
+    the search runs backwards from the end.
     """
     try:
         turns = _request(f"/sessions/{session_id}/turns")["data"]
@@ -234,11 +243,12 @@ def _find_turn(session_id: str, message: str) -> str | None:
 
 
 def describe_call(session_id: str, source_event_id: str, call_id: str) -> dict | None:
-    """核准閘上那個呼叫在做什麼：`{"tool": "create_branch", "server": "github", "input": {...}}`。
+    """What the call at the gate actually does: `{"tool": "create_branch", "server": "github", "input": {...}}`.
 
-    `tool.approval_required` 只帶 `{id, source_event_id}`，工具名稱不在裡面（實測）。
-    名稱在 `source_event_id` 指的那筆 `model.message` 的 `function.arguments` 裡，
-    要回頭去 session 的事件流拿。拿不到就回 None，讓呼叫端沿用原本的字串。
+    Measured: `tool.approval_required` carries only `{id, source_event_id}`, with no tool name
+    in it. The name lives in the `function.arguments` of the `model.message` that
+    `source_event_id` points at, which means going back to the session's event stream. When
+    it cannot be fetched this returns None and the caller keeps its original string.
     """
     try:
         events = _request(f"/sessions/{session_id}/events")["data"]
@@ -256,10 +266,10 @@ def describe_call(session_id: str, source_event_id: str, call_id: str) -> dict |
                 args = json.loads(fn.get("arguments") or "{}")
             except ValueError:
                 return {"tool": fn.get("name"), "server": None, "input": {}}
-            # MCP 的呼叫外面包一層 call_tool，真正的工具名在 arguments 裡。
+            # An MCP call is wrapped in call_tool, so the real tool name is inside arguments.
             return {"tool": args.get("tool_name") or fn.get("name"),
                     "server": args.get("mcp_server"),
-                    # 長字串是檔案內容，塞進卡片會把要看的東西擠掉
+                    # Long strings are file contents; on the card they crowd out what matters
                     "input": {k: v for k, v in (args.get("input") or {}).items()
                               if isinstance(v, (str, int, float)) and len(str(v)) <= 60}}
     return None
@@ -270,17 +280,18 @@ def _subscribe_url(session_id: str, turn_id: str, after_seq: int) -> str:
 
 
 def resume_turn(session_id: str, turn_id: str, after_seq: int) -> TurnResult:
-    """從斷點續接。after_seq 是 exclusive：只重放編號更大的事件。"""
+    """Resume from the break. after_seq is exclusive: only higher-numbered events are replayed."""
     return _consume(_stream(_subscribe_url(session_id, turn_id, after_seq), None),
                     stop_at_approval=True)
 
 
 def decide(session_id: str, thread_id: str, tool_call_id: str, allow: bool,
            reason: str = "") -> TurnResult:
-    """回覆一次核准請求。
+    """Answer one approval request.
 
-    停在下一次核准請求上：一個寫回動作通常是好幾個工具呼叫（開分支、提交檔案、
-    開 PR），每一個都要各自的核准。讀到底的話會卡在等待，因為 turn 還沒結束。
+    It stops at the next approval request: a write-back is usually several tool calls (branch,
+    commit, pull request) and each needs its own decision. Reading to the end would block,
+    because the turn is not over.
     """
     approval = {"status": "allow"} if allow else {"status": "deny", "reason": reason}
     body = {"input": [{"type": "user.tool_approval", "thread_id": thread_id,

@@ -1,11 +1,13 @@
-"""比較表：兩組跑完同一組情境之後，把差異寫成人看得懂的東西。
+"""The comparison: what changed once both arms have been through the same scenario set.
 
-寫給要按核准鈕的人看。他要能回答三件事才敢按：哪些情境真的變了、成本差多少、
-這份量尺有沒有被動過。
+It is written for whoever presses the approval button. Three questions have to be answerable
+before anyone dares: which scenarios really moved, what it costs, and whether the measuring
+stick has been touched.
 
-「真的變了」需要跟雜訊分開。模型輸出不是確定性的：同一份 spec 連跑三次，
-16 題裡有一題給出 pass/fail/fail。所以每個情境跑多次、比的是通過次數，
-而任一組不穩定的情境標成 flaky，不算在變更帶來的差異裡。
+"Really moved" has to be separated from noise. Model output is not deterministic: measured on
+three consecutive runs of one spec, 1 of the 16 scenarios answered pass/fail/fail. So each
+scenario runs several times and pass counts are compared, and a scenario unstable in either
+arm is marked flaky and is not attributed to the change.
 """
 from __future__ import annotations
 
@@ -21,12 +23,14 @@ ALPHA = 0.05
 
 
 def fisher_exact_p(bp: int, bn: int, cp: int, cn: int) -> float:
-    """兩組通過數差異的雙尾 Fisher exact p 值。
+    """Two-tailed Fisher exact p for the difference in pass counts between the arms.
 
-    純標準庫，確定性：同一組計數永遠得到同一個 p，判決才重跑得出來。
+    Standard library only, and deterministic: the same counts always give the same p, which is
+    what lets the verdict survive a re-run.
 
-    值得記住的是它對次數的下限：三次重複能做到的最強差異是 0/3 對 3/3，p = 0.1，
-    永遠過不了 0.05。要宣告某一題被修好或弄壞，每組至少要跑四次。
+    The floor it puts on the repeat count is worth remembering. The strongest split three
+    repeats can produce is 0/3 against 3/3, p = 0.1, which never clears 0.05. Calling any
+    scenario fixed or broken takes at least four runs per arm.
     """
     a, b, c, d = bp, bn - bp, cp, cn - cp
     n, row1, row2, col1 = bn + cn, a + b, c + d, a + c
@@ -49,10 +53,11 @@ class Comparison:
 
     @staticmethod
     def _scored(arm: ArmResult, sid: str) -> list:
-        """只有真的跑到底的那幾次算數。
+        """Only runs that actually completed are scored.
 
-        harness 掛掉、核准閘在評測中攔下、subagent 沒接到題，這些是評測沒跑成，
-        不是模型答錯。混進來的話，一次基礎設施故障會被報成整組退步。
+        A harness outage, the approval gate catching the run mid-evaluation, a subagent never
+        receiving its item: those are evaluations that did not happen, not wrong answers. Let
+        them in and one infrastructure failure gets reported as a regression across the set.
         """
         return [r for r in arm.for_scenario(sid) if r.error is None]
 
@@ -81,8 +86,9 @@ class Comparison:
                              "candidate_pass": cp, "candidate_n": cn})
                 continue
             flaky = (0 < bp < bn) or (0 < cp < cn)
-            # 方向看通過率不看通過次數：兩組跑成的次數可以不同（失敗的 run 被排除），
-            # 3/3 對 5/5 是同一個結果，不是「多過了兩次」。
+            # Direction compares rates, not counts: the arms can have different numbers of
+            # scored runs once failures are excluded, and 3/3 against 5/5 is the same result,
+            # not two extra passes.
             moved = (bp / bn) != (cp / cn)
             p = fisher_exact_p(bp, bn, cp, cn)
             if flaky:
@@ -90,8 +96,9 @@ class Comparison:
             elif not moved:
                 delta = "same"
             elif p > ALPHA:
-                # 有方向，沒有證據。四次執行裡有一次就是這樣被記成 improvement 的：
-                # 一組 0/3、另一組 3/3，兩邊都不部分通過，flaky 看不見，而 p = 0.1。
+                # A direction with no evidence. One of four runs was recorded as an
+                # improvement exactly this way: 0/3 against 3/3, neither arm partially
+                # passing so nothing looked flaky, and p = 0.1.
                 delta = "unproven"
             elif cp / cn > bp / bn:
                 delta = "fixed"
@@ -105,7 +112,7 @@ class Comparison:
                         why = reason
                         break
             if delta == "unproven":
-                # 這一列存在的理由就是那個 p 值，不能被失敗原因蓋掉。
+                # The p value is why this row exists; a failure reason must not overwrite it.
                 why = f"direction only, p={p:.2f} at {bn} and {cn} runs"
             rows.append({"id": s.id, "baseline": f"{bp}/{bn}", "candidate": f"{cp}/{cn}",
                          "delta": delta, "why": why,
@@ -135,7 +142,7 @@ class Comparison:
     def verdict(self) -> str:
         s = self.summary()
         if s["incomplete"]:
-            return "incomplete"          # 有情境根本沒跑成，不能拿這組數字下結論
+            return "incomplete"          # a scenario never completed, so these numbers cannot settle anything
         if s["broken"] and not s["fixed"]:
             return "regression"
         if s["fixed"] and not s["broken"]:
@@ -147,7 +154,8 @@ class Comparison:
     def to_markdown(self, analysis: str | None = None) -> str:
         s, rows = self.summary(), self.rows()
         ratio = f"{s['token_ratio']:.2f}×" if s["token_ratio"] else "n/a"
-        # 分母是 0 代表沒有資料，不是全錯。印成 0% 會讓一次故障讀起來像全軍覆沒。
+        # A zero denominator means no data, not everything wrong. Printing 0% makes one outage
+        # read as a total wipe-out.
         rate = lambda p, t: f"({p / t:.0%})" if t else "(n/a)"
         br, cr = rate(s["baseline_pass"], s["baseline_total"]), rate(s["candidate_pass"], s["candidate_total"])
         lines = [
